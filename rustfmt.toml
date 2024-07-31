@@ -1,0 +1,4 @@
+blank_lines_upper_bound = 2
+empty_item_single_line = false
+format_code_in_doc_comments = true
+overflow_delimited_expr = true
