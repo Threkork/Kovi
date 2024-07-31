@@ -5,7 +5,9 @@
 使用 Rust 开发的**快速轻量** OneBot V11 机器人插件框架。
 项目处于 beta 状态，目前已具备 **消息监听** 与 **基本api能力** 。
 其他能力请等待开发。
+
 **注意⚠️，项目处于 Beta 状态，以下可能会变动**
+
 **注意⚠️，项目目前只支持 OneBot V11 正向 WebSocket 协议**
 
 ## 为什么选择 Kovi ？
@@ -21,7 +23,9 @@
 因为机器人插件写法来源于 [Kivi](https://github.com/xiaotian2333/KiviBot-Primitive) 。如果你之前开发过Kivi框架的插件，对于上手本框架会很简单。
 
 ## 快速上手
+
 **注意⚠️，项目处于 Beta 状态，以下可能会变动**
+
 **注意⚠️，项目目前只支持 OneBot V11 正向 WebSocket 协议**
 
 项目由 [Rust](#) 所写，插件也需用 [Rust](#) 写，请确保本地已安装。
@@ -42,7 +46,9 @@ fn main() {
     bot.run()
 }
 ```
+
 如果是第一次运行，在 `Bot::build()` 时，会提示输入一些信息以创建 `kovi.conf.json` 文件，这是Kovi运行所需的信息。
+
 ```
 ✔ What is the IP of the OneBot server? · 127.0.0.1
 OneBot服务端的IP是什么？ (默认值：127.0.0.1)
@@ -86,6 +92,7 @@ Cargo 会帮你做好一切的。
 ### 编写插件
 
 编写我们新创建的插件 `plugins/hi/src/lib.rs`
+
 下面是最小实例
 
 ```rust
@@ -110,11 +117,13 @@ pub fn main(mut plugin: PluginBuilder) {
 ```
 
 main函数写在 `lib.rs` 是因为等下要导出给bot实例挂载。
+
 插件一般不需要 ` main.rs`
 
 ### 挂载插件
 
 将插件导入到 `kovi-bot` 的 `main.rs`
+
 ```bash
 cargo add --path plugins/hi  
 ```
@@ -137,6 +146,7 @@ fn main() {
 ### 更多插件例子
 
 #### bot 主动发言
+
 ```rust
 use kovi::bot::plugin_builder::PluginBuilder;
 
@@ -151,6 +161,7 @@ pub fn main(mut plugin: PluginBuilder) {
 ```
 
 `main()` 函数 只会在 KoviBot 启动时运行一次。
+
 向 `plugin.on_msg()` 传入的闭包，会在每一次接收消息时运行。
 
 目前 beta 阶段的 Kovi 还没有封装更多的 api 你可以使用 RuntimeBot 的 api_tx 来自行发送 api

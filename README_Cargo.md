@@ -3,10 +3,13 @@
 # Kovi
 
 A **fast and lightweight** OneBot V11 bot plugin framework developed with Rust.
+
 The project is in beta status, currently featuring **message listening** and **basic API capabilities**.
 
 Other features are under development.
+
 **Note ⚠️, the project is in Beta status and the following may change**
+
 **Note ⚠️, the project currently only supports OneBot V11 positive WebSocket protocol**
 
 ## Why Choose Kovi?
@@ -18,10 +21,13 @@ Other features are under development.
 The initial purpose of this project is to enhance group activity, facilitate group management, and is intended for personal entertainment, learning, and communication only. **No one is allowed to use this project for any illegal purposes.**
 
 ## Why is it called Kovi?
+
 Because the bot plugin writing style is inspired by [Kivi](https://github.com/xiaotian2333/KiviBot-Primitive). If you have previously developed plugins for the Kivi framework, you will find it easy to get started with this framework.
 
 ## Getting Started
+
 **Note ⚠️, the project is in Beta status and the following may change**
+
 **Note ⚠️, the project currently only supports OneBot V11 positive WebSocket protocol**
 
 The project is written in [Rust](#), and plugins also need to be written in [Rust](#), please make sure it is installed locally.
@@ -45,6 +51,7 @@ fn main() {
 ```
 
 If this is the first run, during **Bot::build()**, you will be prompted to enter some information to create the **kovi.conf.json** file, which is necessary for Kovi to run.
+
 ```
 ✔ What is the IP of the OneBot server? · 127.0.0.1
 (Default: 127.0.0.1)
@@ -88,6 +95,7 @@ Cargo will handle the rest for you.
 ### Writing Plugin
 
 Edit the newly created plugin `plugins/hi/src/lib.rs`
+
 Here is the minimal example
 
 ```rust
@@ -113,6 +121,7 @@ pub fn main(mut plugin: PluginBuilder) {
 
 
 The main function is written in `lib.rs` because it needs to be exported for the bot instance to mount.
+
 Plugins generally do not need `main.rs`.
 
 ### Mounting Plugins
