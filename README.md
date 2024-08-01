@@ -22,7 +22,7 @@ The initial purpose of this project is to enhance group activity, facilitate gro
 
 ## Why is it called Kovi?
 
-Because the bot plugin writing style is inspired by [Kivi](https://github.com/xiaotian2333/KiviBot-Primitive). If you have previously developed plugins for the Kivi framework, you will find it easy to get started with this framework.
+Since the writing method of the robot plugin is derived from [Kivi](#), and the [Kivi](#) repository is no longer open, you can check out its author [Viki](https://github.com/vikiboss). If you have previously developed plugins for the [Kivi](#) framework, getting started with this framework will be very easy for you.
 
 ## Getting Started
 
