@@ -4,8 +4,8 @@ use plugin_builder::{OnType, Plugin, PluginBuilder};
 use serde::{Deserialize, Serialize};
 use serde_json::{self, json, Value};
 use std::net::Ipv4Addr;
-use std::ops::DerefMut;
 use std::sync::mpsc::{self};
+use std::sync::RwLock;
 use std::{
     fs,
     net::IpAddr,
@@ -27,7 +27,6 @@ fn config_file_write_and_return() -> Result<ConfigJson, std::io::Error> {
         .default(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)))
         .interact_text()
         .unwrap();
-
 
     let port: u16 = Input::with_theme(&ColorfulTheme::default())
         .with_prompt("What is the port of the OneBot server?")
@@ -71,12 +70,13 @@ fn config_file_write_and_return() -> Result<ConfigJson, std::io::Error> {
 #[derive(Clone)]
 pub struct BotInformation {
     id: i64,
-    name: String,
+    nickname: String,
     main_admin: i64,
     admin: Vec<i64>,
     server: Server,
     debug: bool,
 }
+
 /// bot结构体
 #[derive(Clone)]
 pub struct Bot {
@@ -85,7 +85,6 @@ pub struct Bot {
     plugins: Vec<Plugin>,
     life: BotLife,
 }
-
 
 #[derive(Deserialize, Serialize)]
 struct ConfigJson {
@@ -133,7 +132,7 @@ impl Bot {
         Bot {
             information: BotInformation {
                 id: 0,
-                name: "".to_string(),
+                nickname: "".to_string(),
                 main_admin: config_json.main_admin,
                 admin: config_json.admins,
                 server: config_json.server,
@@ -167,11 +166,11 @@ impl Bot {
 struct BotLife {
     status: LifeStatus,
 }
+
 #[derive(Debug, Clone)]
 enum LifeStatus {
     Initial,
     Running,
-    Disabled,
 }
 
 
@@ -186,12 +185,10 @@ impl Bot {
             self.information.debug,
         );
 
-        let bot = Arc::new(Mutex::new(self));
-
+        let bot = Arc::new(RwLock::new(self));
 
         //处理连接，从msg_tx返回消息
         let (msg_tx, msg_rx): (mpsc::Sender<String>, mpsc::Receiver<String>) = mpsc::channel();
-
 
         let msg_tx_clone = msg_tx.clone();
         let access_token_clone = access_token.clone();
@@ -200,10 +197,12 @@ impl Bot {
         });
 
         let (api_tx, api_rx): (mpsc::Sender<Value>, mpsc::Receiver<Value>) = mpsc::channel();
+
         let access_token_clone = access_token.clone();
         let send_api_job = thread::spawn(move || {
             Self::ws_send_api(host, port, access_token_clone, api_rx, debug);
         });
+
 
         // 运行所有main()
         let bot_main_job_clone = bot.clone();
@@ -211,13 +210,12 @@ impl Bot {
         let handler_main_job = thread::spawn(move || {
             let mut main_job_vec;
             {
-                let bot = bot_main_job_clone.lock().unwrap();
+                let bot = bot_main_job_clone.read().unwrap();
                 main_job_vec = bot.main.clone();
             }
 
             //储存所有main()
             let mut handler_main_job = Vec::new();
-
 
             for _i in 0..main_job_vec.len() {
                 let main_job = main_job_vec.pop().unwrap();
@@ -250,19 +248,16 @@ impl Bot {
         send_api_job.join().unwrap();
     }
 
-    fn handler_msg(bot: Arc<Mutex<Self>>, msg: String, api_tx: mpsc::Sender<Value>, debug: bool) {
+    fn handler_msg(bot: Arc<RwLock<Self>>, msg: String, api_tx: mpsc::Sender<Value>, debug: bool) {
         let msg_json: Value = serde_json::from_str(&msg).unwrap();
         if debug {
             println!("{}", msg_json);
         }
         if let Some(meta_event_type) = msg_json.get("meta_event_type") {
             match meta_event_type.as_str().unwrap() {
+                // 生命周期一开始请求bot的信息
                 "lifecycle" => {
-                    let self_id = msg_json.get("self_id").unwrap().as_i64().unwrap();
-                    let mut bot = bot.lock().unwrap();
-                    Self::bot_init(bot.deref_mut(), self_id);
-
-                    println!("Bot connection successful，ID:{}", bot.information.id);
+                    handler::handle_lifecycle(bot.clone(), debug);
                     return;
                 }
                 "heartbeat" => {
@@ -274,7 +269,7 @@ impl Bot {
             }
         }
 
-        let plugins = bot.lock().unwrap().plugins.clone();
+        let plugins = bot.read().unwrap().plugins.clone();
 
 
         //线程储存
@@ -287,6 +282,36 @@ impl Bot {
                         let msg = msg.clone();
                         handles.push(thread::spawn(move || {
                             handler::handler_on_msg(api_tx, &msg, listen.handler)
+                        }));
+                    }
+                    OnType::OnAdminMsg => {
+                        let api_tx = api_tx.clone();
+                        let msg = msg.clone();
+                        let bot = bot.clone();
+
+                        if let None = msg_json.get("message_type") {
+                            continue;
+                        };
+
+                        let user_id = msg_json
+                            .get("sender")
+                            .unwrap()
+                            .get("user_id")
+                            .unwrap()
+                            .as_i64()
+                            .unwrap();
+
+                        handles.push(thread::spawn(move || {
+                            let admin_vec = {
+                                let bot = bot.read().unwrap();
+                                let mut admin_vec = bot.information.admin.clone();
+                                admin_vec.push(bot.information.main_admin);
+                                admin_vec
+                            };
+
+                            if admin_vec.contains(&user_id) {
+                                handler::handler_on_msg(api_tx, &msg, listen.handler)
+                            }
                         }));
                     }
                     OnType::OnNoticeAll => {
@@ -304,10 +329,6 @@ impl Bot {
             handle.join().unwrap();
         }
     }
-    fn bot_init(bot: &mut Self, self_id: i64) {
-        bot.information.id = self_id;
-        bot.life.status = LifeStatus::Running;
-    }
 
     fn ws_connect(host: IpAddr, port: u16, access_token: String, tx: mpsc::Sender<String>) {
         let url = format!("ws://{}:{}/event", host, port);
@@ -318,10 +339,7 @@ impl Bot {
         );
         let mut ws = match client.connect_insecure() {
             Ok(v) => v,
-            Err(e) => {
-                eprintln!("Error: {}\nBot connection failed, please check the configuration and restart Kovi", e);
-                exit(1);
-            }
+            Err(e) => exit_and_eprintln(e),
         };
         loop {
             match ws.receive() {
@@ -338,10 +356,7 @@ impl Bot {
                         continue;
                     }
                 },
-                Err(e) => {
-                    eprintln!("Error: {}\nBot connection failed, please check the configuration and restart Kovi", e);
-                    exit(1);
-                }
+                Err(e) => exit_and_eprintln(e),
             }
         }
     }
@@ -360,10 +375,7 @@ impl Bot {
         );
         let ws = match client.connect_insecure() {
             Ok(v) => v,
-            Err(e) => {
-                eprintln!("Error: {}\nBot connection failed, please check the configuration and restart Kovi", e);
-                exit(1);
-            }
+            Err(e) => exit_and_eprintln(e),
         };
         let arc_ws = Arc::new(Mutex::new(ws));
 
@@ -393,13 +405,20 @@ impl Bot {
                             return;
                         }
                     },
-                    Err(e) => {
-                        eprintln!("Error: {}\nBot connection failed, please check the configuration and restart Kovi", e);
-
-                        exit(1);
-                    }
+                    Err(e) => exit_and_eprintln(e),
                 }
             });
         }
     }
+}
+
+fn exit_and_eprintln<E>(e: E) -> !
+where
+    E: std::fmt::Display,
+{
+    eprintln!(
+        "Error: {}\nBot connection failed, please check the configuration and restart Kovi",
+        e
+    );
+    exit(1);
 }

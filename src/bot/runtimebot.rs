@@ -17,7 +17,10 @@ pub mod api;
 /// }
 /// ```
 pub struct RuntimeBot {
+    /// 主管理员
     pub main_admin: i64,
+    /// 副管理员，不包含主管理员
+    pub admin: Vec<i64>,
 
     pub host: IpAddr,
     pub port: u16,

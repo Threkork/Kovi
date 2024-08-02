@@ -36,8 +36,8 @@
 1. 创建基本rust项目，加入框架。
 
 ```bash
-cargo new kovi-bot
-cd ./kovi-bot
+cargo new my-kovi-bot
+cd ./my-kovi-bot
 cargo add Kovi
 ```
 
@@ -125,7 +125,7 @@ main函数写在 `lib.rs` 是因为等下要导出给bot实例挂载。
 
 ### 挂载插件
 
-将插件导入到 `kovi-bot` 的 `main.rs`
+将插件导入到 `my-kovi-bot` 的 `main.rs`
 
 ```bash
 cargo add --path plugins/hi  

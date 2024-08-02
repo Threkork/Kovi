@@ -35,8 +35,8 @@ The project is written in [Rust](#), and plugins also need to be written in [Rus
 1. Create a basic rust project and add the framework.
 
 ```bash
-cargo new kovi-bot
-cd ./kovi-bot
+cargo new my-kovi-bot
+cd ./my-kovi-bot
 cargo add Kovi
 ```
 
@@ -126,7 +126,7 @@ Plugins generally do not need `main.rs`.
 
 ### Mounting Plugins
 
-Import the plugin into kovi-bot's main.rs
+Import the plugin into `my-kovi-bot` 's `main.rs`
 
 ```bash
 cargo add --path plugins/hi  
