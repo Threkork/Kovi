@@ -314,10 +314,10 @@ impl Bot {
                             }
                         }));
                     }
-                    OnType::OnNoticeAll => {
+                    OnType::OnAllNotice => {
                         let msg = msg.clone();
                         handles.push(thread::spawn(move || {
-                            handler::handler_on_notice_all(&msg, listen.handler)
+                            handler::handler_on_all_notice(&msg, listen.handler)
                         }));
                     }
                 }

@@ -1,5 +1,5 @@
 use super::{
-    plugin_builder::event::{Event, OnMsgEvent, OnNoticeAllEvent},
+    plugin_builder::event::{Event, OnAllNoticeEvent, OnMsgEvent},
     Bot, LifeStatus,
 };
 use crate::bot::exit_and_eprintln;
@@ -90,15 +90,15 @@ pub fn handler_on_msg(
 }
 
 
-pub fn handler_on_notice_all(
+pub fn handler_on_all_notice(
     msg: &String,
     handler: Arc<dyn Fn(&Event) -> Result<(), ()> + Send + Sync + 'static>,
 ) {
-    let event = match OnNoticeAllEvent::new(msg) {
+    let event = match OnAllNoticeEvent::new(msg) {
         Ok(event) => event,
         Err(_e) => {
             return;
         }
     };
-    handler(&Event::OnNoticeAll(event)).unwrap();
+    handler(&Event::OnAllNotice(event)).unwrap();
 }

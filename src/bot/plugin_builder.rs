@@ -1,5 +1,5 @@
 use super::{runtimebot::RuntimeBot, Bot};
-use event::{Event, OnMsgEvent, OnNoticeAllEvent};
+use event::{Event, OnAllNoticeEvent, OnMsgEvent};
 use serde_json::Value;
 use std::sync::{Arc, RwLock};
 use std::{net::IpAddr, sync::mpsc};
@@ -15,7 +15,7 @@ pub struct Plugin {
 pub enum OnType {
     OnMsg,
     OnAdminMsg,
-    OnNoticeAll,
+    OnAllNotice,
 }
 
 #[derive(Clone)]
@@ -145,12 +145,12 @@ impl PluginBuilder {
 
     /// 注册消息处理函数。
     ///
-    /// 注册一个处理程序（handler），用于处理接收到的消息事件（`on_notice_all`）。
-    /// 接收闭包，要求函数接受 `OnNoticeAllEvent` 类型的参数，并返回 `Result` 类型。
+    /// 注册一个处理程序（handler），用于处理接收到的消息事件（`on_all_notice`）。
+    /// 接收闭包，要求函数接受 `OnAllNoticeEvent` 类型的参数，并返回 `Result` 类型。
     /// 闭包必须实现 `Send` 、 `Sync`和 `'static`，因为要保证多线程安全以及在确保闭包在整个程序生命周期有效。
-    pub fn on_notice_all<F>(&mut self, handler: F) -> Result<(), ()>
+    pub fn on_all_notice<F>(&mut self, handler: F) -> Result<(), ()>
     where
-        F: Fn(&OnNoticeAllEvent) -> Result<(), ()> + Send + Sync + 'static,
+        F: Fn(&OnAllNoticeEvent) -> Result<(), ()> + Send + Sync + 'static,
     {
         if self.name == None {
             return Err(());
@@ -163,9 +163,9 @@ impl PluginBuilder {
                 }
             }
             plugin.all_listen.push(Listen {
-                on_type: OnType::OnNoticeAll,
+                on_type: OnType::OnAllNotice,
                 handler: Arc::new(move |event| {
-                    if let Event::OnNoticeAll(e) = event {
+                    if let Event::OnAllNotice(e) = event {
                         handler(e)
                     } else {
                         panic!()

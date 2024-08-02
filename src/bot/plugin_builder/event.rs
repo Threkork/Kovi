@@ -5,7 +5,7 @@ use std::sync::mpsc;
 #[derive(Clone)]
 pub enum Event {
     OnMsg(OnMsgEvent),
-    OnNoticeAll(OnNoticeAllEvent),
+    OnAllNotice(OnAllNoticeEvent),
 }
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct Sender {
@@ -142,7 +142,7 @@ impl OnMsgEvent {
 }
 
 #[derive(Clone)]
-pub struct OnNoticeAllEvent {
+pub struct OnAllNoticeEvent {
     pub time: i64,
     pub self_id: i64,
     pub post_type: String,
@@ -151,14 +151,14 @@ pub struct OnNoticeAllEvent {
     pub original_json: Value,
     pub original_msg: String,
 }
-impl OnNoticeAllEvent {
-    pub fn new(msg: &String) -> Result<OnNoticeAllEvent, Box<dyn std::error::Error>> {
+impl OnAllNoticeEvent {
+    pub fn new(msg: &String) -> Result<OnAllNoticeEvent, Box<dyn std::error::Error>> {
         let temp: Value = serde_json::from_str(msg)?;
         let time = temp.get("time").unwrap().as_i64().unwrap();
         let self_id = temp.get("self_id").unwrap().as_i64().unwrap();
         let post_type = temp.get("post_type").unwrap().to_string();
         let notice_type = temp.get("notice_type").unwrap().to_string();
-        Ok(OnNoticeAllEvent {
+        Ok(OnAllNoticeEvent {
             time,
             self_id,
             post_type,
