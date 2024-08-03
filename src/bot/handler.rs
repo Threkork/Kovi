@@ -77,7 +77,7 @@ pub fn handle_lifecycle(bot: Arc<RwLock<Bot>>, debug: bool) {
 
 pub fn handler_on_msg(
     api_tx: mpsc::Sender<Value>,
-    msg: &String,
+    msg: &str,
     handler: Arc<dyn Fn(&Event) -> Result<(), ()> + Send + Sync + 'static>,
 ) {
     let event = match OnMsgEvent::new(api_tx, msg) {
@@ -91,7 +91,7 @@ pub fn handler_on_msg(
 
 
 pub fn handler_on_all_notice(
-    msg: &String,
+    msg: &str,
     handler: Arc<dyn Fn(&Event) -> Result<(), ()> + Send + Sync + 'static>,
 ) {
     let event = match OnAllNoticeEvent::new(msg) {

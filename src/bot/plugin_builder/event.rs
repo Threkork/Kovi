@@ -68,7 +68,7 @@ pub struct OnMsgEvent {
 impl OnMsgEvent {
     pub fn new(
         api_tx: mpsc::Sender<Value>,
-        msg: &String,
+        msg: &str,
     ) -> Result<OnMsgEvent, Box<dyn std::error::Error>> {
         let temp: TempOnMsgEvent = serde_json::from_str(msg)?;
         let text = {
@@ -109,7 +109,7 @@ impl OnMsgEvent {
             sender: temp.sender,
             api_tx,
             text,
-            original_msg: msg.clone(),
+            original_msg: msg.to_string(),
         })
     }
 
@@ -152,7 +152,7 @@ pub struct OnAllNoticeEvent {
     pub original_msg: String,
 }
 impl OnAllNoticeEvent {
-    pub fn new(msg: &String) -> Result<OnAllNoticeEvent, Box<dyn std::error::Error>> {
+    pub fn new(msg: &str) -> Result<OnAllNoticeEvent, Box<dyn std::error::Error>> {
         let temp: Value = serde_json::from_str(msg)?;
         let time = temp.get("time").unwrap().as_i64().unwrap();
         let self_id = temp.get("self_id").unwrap().as_i64().unwrap();
@@ -164,7 +164,7 @@ impl OnAllNoticeEvent {
             post_type,
             notice_type,
             original_json: temp,
-            original_msg: msg.clone(),
+            original_msg: msg.to_string(),
         })
     }
 }
