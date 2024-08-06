@@ -14,8 +14,8 @@ Other features are under development.
 
 ## Why Choose Kovi?
 
-- 🚲 Lightweight: Low resource usage. So far, the compiled library size on Linux is less than 1.5MB.
-- ⚡ Efficient: Due to its lightweight nature, it is fast enough, processing and delivering messages to plugins in less than 5 microseconds.
+- 🚲 Lightweight: Low resource usage. So far, the compiled library size on Linux is less than 2MB.
+- ⚡ Efficient: Lightweight enough to be fast.
 - 🚤 Rapid Development: Developers do not need to worry about underlying details, the framework handles everything for you.
 
 The initial purpose of this project is to enhance group activity, facilitate group management, and is intended for personal entertainment, learning, and communication only. **No one is allowed to use this project for any illegal purposes.**
@@ -112,7 +112,7 @@ pub fn main(mut plugin: PluginBuilder) {
             if event.text == Option::Some("Hi Bot".to_string()) {
                 event.reply("Hi!")
             }
-            // Must return Ok(), currently has no effect; future versions will handle Err() accordingly
+            // Must return an Ok(). You can return an error using plugin.error().
             Ok(())
         }) // As long as the name is set correctly, this will not return an error, so .unwrap() is fine
         .unwrap();
@@ -167,4 +167,4 @@ pub fn main(mut plugin: PluginBuilder) {
 The `main()` function runs only once when KoviBot starts.
 The closure passed to `plugin.on_msg()` runs every time a message is received.
 
-Currently, the beta version of Kovi has not encapsulated more APIs. You can use `RuntimeBot` 's `api_tx` to send APIs manually.
+Kovi has encapsulated all available OneBot standard APIs. For extended APIs, you can use `RuntimeBot` 's `api_tx` to send APIs yourself.

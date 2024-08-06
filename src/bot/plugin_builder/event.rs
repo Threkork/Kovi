@@ -2,6 +2,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::{self, json, Value};
 use std::sync::mpsc;
 
+use crate::bot::ApiMpsc;
+
 #[derive(Clone)]
 pub enum Event {
     OnMsg(OnMsgEvent),
@@ -58,7 +60,7 @@ pub struct OnMsgEvent {
     pub font: i32,
     pub sender: Sender,
 
-    api_tx: mpsc::Sender<Value>,
+    api_tx: mpsc::Sender<ApiMpsc>,
     /// 处理过的纯文本，如果是纯图片或无文本，此初为None
     pub text: Option<String>,
     /// 原始未处理的onebot消息，为json格式，使用需处理
@@ -67,7 +69,7 @@ pub struct OnMsgEvent {
 
 impl OnMsgEvent {
     pub fn new(
-        api_tx: mpsc::Sender<Value>,
+        api_tx: mpsc::Sender<ApiMpsc>,
         msg: &str,
     ) -> Result<OnMsgEvent, Box<dyn std::error::Error>> {
         let temp: TempOnMsgEvent = serde_json::from_str(msg)?;
@@ -86,7 +88,7 @@ impl OnMsgEvent {
                     );
                 };
             }
-            if text_vec.len() != 0 {
+            if !text_vec.is_empty() {
                 Some(text_vec.join("\n"))
             } else {
                 None
@@ -114,7 +116,10 @@ impl OnMsgEvent {
     }
 
     /// 快速回复文本
-    pub fn reply(&self, msg: &str) {
+    pub fn reply<T>(&self, msg: T)
+    where
+        T: Into<String> + Serialize,
+    {
         let send_msg = if self.message_type == "private" {
             json!({
             "action": "send_msg",
@@ -124,7 +129,7 @@ impl OnMsgEvent {
                 "message":msg,
                 "auto_escape":true
             },
-            "echo": "123" })
+            "echo": "None" })
         } else {
             json!({
             "action": "send_msg",
@@ -134,10 +139,10 @@ impl OnMsgEvent {
                 "message":msg,
                 "auto_escape":true,
             },
-            "echo": "123" })
+            "echo": "None" })
         };
 
-        self.api_tx.send(send_msg).unwrap();
+        self.api_tx.send((send_msg, None)).unwrap();
     }
 }
 

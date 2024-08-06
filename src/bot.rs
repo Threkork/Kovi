@@ -1,19 +1,18 @@
 use dialoguer::theme::ColorfulTheme;
 use dialoguer::Input;
 use plugin_builder::{OnType, Plugin, PluginBuilder};
+use runtimebot::ApiMpsc;
 use serde::{Deserialize, Serialize};
 use serde_json::{self, json, Value};
+use std::cell::RefCell;
 use std::net::Ipv4Addr;
+use std::rc::Rc;
 use std::sync::mpsc::{self};
 use std::sync::RwLock;
-use std::{
-    fs,
-    net::IpAddr,
-    process::exit,
-    sync::{Arc, Mutex},
-    thread,
-};
+use std::{fs, net::IpAddr, process::exit, sync::Arc, thread};
 use websocket_lite::{ClientBuilder, Message};
+
+use crate::error::Error;
 
 mod handler;
 pub mod plugin_builder;
@@ -187,6 +186,7 @@ impl Bot {
 
         let bot = Arc::new(RwLock::new(self));
 
+
         //处理连接，从msg_tx返回消息
         let (msg_tx, msg_rx): (mpsc::Sender<String>, mpsc::Receiver<String>) = mpsc::channel();
 
@@ -196,7 +196,9 @@ impl Bot {
             Self::ws_connect(host, port, access_token_clone, msg_tx_clone);
         });
 
-        let (api_tx, api_rx): (mpsc::Sender<Value>, mpsc::Receiver<Value>) = mpsc::channel();
+
+        // 接收插件的api
+        let (api_tx, api_rx): (mpsc::Sender<ApiMpsc>, mpsc::Receiver<ApiMpsc>) = mpsc::channel();
 
         let access_token_clone = access_token.clone();
         let send_api_job = thread::spawn(move || {
@@ -217,7 +219,7 @@ impl Bot {
             //储存所有main()
             let mut handler_main_job = Vec::new();
 
-            for _i in 0..main_job_vec.len() {
+            for _ in 0..main_job_vec.len() {
                 let main_job = main_job_vec.pop().unwrap();
                 let bot_main_job_clone = bot_main_job_clone.clone();
                 let api_tx = api_tx_main_job_clone.clone();
@@ -248,7 +250,12 @@ impl Bot {
         send_api_job.join().unwrap();
     }
 
-    fn handler_msg(bot: Arc<RwLock<Self>>, msg: String, api_tx: mpsc::Sender<Value>, debug: bool) {
+    fn handler_msg(
+        bot: Arc<RwLock<Self>>,
+        msg: String,
+        api_tx: mpsc::Sender<ApiMpsc>,
+        debug: bool,
+    ) {
         let msg_json: Value = serde_json::from_str(&msg).unwrap();
         if debug {
             println!("{}", msg_json);
@@ -289,7 +296,7 @@ impl Bot {
                         let msg = msg.clone();
                         let bot = bot.clone();
 
-                        if let None = msg_json.get("message_type") {
+                        if msg_json.get("message_type").is_none() {
                             continue;
                         };
 
@@ -364,7 +371,7 @@ impl Bot {
         host: IpAddr,
         port: u16,
         access_token: String,
-        rx: mpsc::Receiver<Value>,
+        rx: mpsc::Receiver<ApiMpsc>,
         debug: bool,
     ) {
         let url = format!("ws://{}:{}/api", host, port);
@@ -377,40 +384,62 @@ impl Bot {
             Ok(v) => v,
             Err(e) => exit_and_eprintln(e),
         };
-        let arc_ws = Arc::new(Mutex::new(ws));
+        let arc_ws = Rc::new(RefCell::new(ws));
 
-        for api_msg in rx {
+        for (api_msg, return_api_tx) in rx {
             if debug {
                 println!("{}", api_msg);
             }
 
-            let arc_ws_send = arc_ws.clone();
-            thread::spawn(move || {
-                let mut ws = arc_ws_send.lock().unwrap();
-                let msg = Message::text(api_msg.to_string());
+            let rc_ws_send = arc_ws.clone();
+
+            let msg = Message::text(api_msg.to_string());
+
+            {
+                let mut ws = rc_ws_send.borrow_mut();
                 ws.send(msg).unwrap();
+            }
+            loop {
+                let mut ws = rc_ws_send.borrow_mut();
                 let receive = ws.receive();
+                if return_api_tx.is_none() && debug {
+                    break;
+                }
                 match receive {
-                    Ok(msg_result) => match msg_result {
-                        Some(msg) => {
+                    Ok(msg_result) => {
+                        if let Some(msg) = msg_result {
                             if !msg.opcode().is_text() {
-                                return;
+                                continue;
                             }
+                            drop(ws);
                             let text = msg.as_text().unwrap();
                             if debug {
                                 println!("{}", text);
                             }
+                            let api_tx = match return_api_tx {
+                                Some(v) => v,
+                                None => break,
+                            };
+
+                            let return_value: Value = serde_json::from_str(text).unwrap();
+                            let status = return_value.get("status").unwrap().as_str().unwrap();
+                            if status == "ok" {
+                                api_tx
+                                    .send(Ok(return_value.get("data").unwrap().clone()))
+                                    .unwrap();
+                            } else {
+                                api_tx.send(Err(Error::UnknownError())).unwrap();
+                            }
                         }
-                        None => {
-                            return;
-                        }
-                    },
+                    }
                     Err(e) => exit_and_eprintln(e),
                 }
-            });
+                break;
+            }
         }
     }
 }
+
 
 fn exit_and_eprintln<E>(e: E) -> !
 where

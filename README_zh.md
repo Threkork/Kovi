@@ -10,7 +10,7 @@
 
 使用 Rust 开发的**快速轻量** OneBot V11 机器人插件框架。
 
-项目处于 beta 状态，目前已具备 **消息监听** 与 **基本api能力** 。
+项目处于 beta 状态，目前已具备 **消息监听** 与 **api能力** 。
 
 其他能力请等待开发。
 
@@ -20,8 +20,8 @@
 
 ## 为什么选择 Kovi ？
 
-- 🚲 轻量：低占用，目前为止，在 Linux 下编译，lib 库大小不到 1.5MB。
-- ⚡ 高效：得益于足够轻量，所以足够快，从接受消息到处理好传到插件少于 5 微秒。
+- 🚲 轻量：低占用，目前为止，在 Linux 下编译，lib 库大小不到 2MB。
+- ⚡ 高效：得益于足够轻量，所以足够快。
 - 🚤 极速开发: 开发者无需在意底层细节，框架帮助你完成所有。
 
 本项目开发初衷在于提高群活跃氛围、方便群管理，仅供个人娱乐、学习和交流使用，**任何人不得将本项目用于任何非法用途**。
@@ -118,7 +118,7 @@ pub fn main(mut plugin: PluginBuilder) {
             if event.text == Option::Some("Hi Bot".to_string()) {
                 event.reply("Hi!")
             }
-            // 必须返回一个Ok()，目前无效果，后续版本会根据返回Err()做相对应的操作
+            // 必须返回一个Ok()，可以通过plugin.error()返回error。
             Ok(())
         }) // 只要名字设置正确，此处不会返回错误，所以 .unwrap() 就行
         .unwrap();
@@ -173,4 +173,4 @@ pub fn main(mut plugin: PluginBuilder) {
 
 向 `plugin.on_msg()` 传入的闭包，会在每一次接收消息时运行。
 
-目前 beta 阶段的 Kovi 还没有封装更多的 api 你可以使用 RuntimeBot 的 api_tx 来自行发送 api
+Kovi 已封装所有可用 OneBot 标准 api ，拓展 api 你可以使用 `RuntimeBot` 的 `api_tx` 来自行发送 api

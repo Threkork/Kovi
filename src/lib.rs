@@ -7,3 +7,4 @@
 
 /// Everything about bots is inside
 pub mod bot;
+pub mod error;

@@ -1,6 +1,9 @@
 use super::{
-    plugin_builder::event::{Event, OnAllNoticeEvent, OnMsgEvent},
-    Bot, LifeStatus,
+    plugin_builder::{
+        event::{Event, OnAllNoticeEvent, OnMsgEvent},
+        ListenFn,
+    },
+    ApiMpsc, Bot, LifeStatus,
 };
 use crate::bot::exit_and_eprintln;
 use serde_json::{json, Value};
@@ -27,7 +30,7 @@ pub fn handle_lifecycle(bot: Arc<RwLock<Bot>>, debug: bool) {
         Err(e) => exit_and_eprintln(e),
     };
     let api_msg = json!({
-                        "action": "get_login_info","echo": "123"});
+                        "action": "get_login_info","echo": "None"});
     let api_msg = Message::text(api_msg.to_string());
     ws.send(api_msg).unwrap();
     let receive = ws.receive();
@@ -44,7 +47,7 @@ pub fn handle_lifecycle(bot: Arc<RwLock<Bot>>, debug: bool) {
                 }
                 self_info_value = serde_json::from_str(text).unwrap();
             }
-            None => exit_and_eprintln("‼️"),
+            None => exit_and_eprintln("Error, UnknownError"),
         },
         Err(e) => exit_and_eprintln(e),
     }
@@ -75,30 +78,28 @@ pub fn handle_lifecycle(bot: Arc<RwLock<Bot>>, debug: bool) {
     }
 }
 
-pub fn handler_on_msg(
-    api_tx: mpsc::Sender<Value>,
-    msg: &str,
-    handler: Arc<dyn Fn(&Event) -> Result<(), ()> + Send + Sync + 'static>,
-) {
+pub fn handler_on_msg(api_tx: mpsc::Sender<ApiMpsc>, msg: &str, handler: ListenFn) {
     let event = match OnMsgEvent::new(api_tx, msg) {
         Ok(event) => event,
         Err(_e) => {
             return;
         }
     };
-    handler(&Event::OnMsg(event)).unwrap();
+    if let Err(err) = handler(&Event::OnMsg(event)) {
+        eprintln!("{}", err);
+    }
 }
 
 
-pub fn handler_on_all_notice(
-    msg: &str,
-    handler: Arc<dyn Fn(&Event) -> Result<(), ()> + Send + Sync + 'static>,
-) {
+pub fn handler_on_all_notice(msg: &str, handler: ListenFn) {
     let event = match OnAllNoticeEvent::new(msg) {
         Ok(event) => event,
         Err(_e) => {
             return;
         }
     };
-    handler(&Event::OnAllNotice(event)).unwrap();
+
+    if let Err(err) = handler(&Event::OnAllNotice(event)) {
+        eprintln!("{}", err);
+    }
 }
