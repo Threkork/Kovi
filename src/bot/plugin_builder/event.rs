@@ -144,6 +144,14 @@ impl OnMsgEvent {
 
         self.api_tx.send((send_msg, None)).unwrap();
     }
+
+    /// 获取文本，如果没有文本则会返回空字符串
+    pub fn get_text(&self) -> String {
+        match self.text.clone() {
+            Some(v) => v,
+            None => "".to_string(),
+        }
+    }
 }
 
 #[derive(Clone)]
