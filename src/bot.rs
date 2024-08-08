@@ -402,11 +402,11 @@ impl Bot {
             loop {
                 let mut ws = rc_ws_send.borrow_mut();
                 let receive = ws.receive();
-                if return_api_tx.is_none() && debug {
-                    break;
-                }
                 match receive {
                     Ok(msg_result) => {
+                        if return_api_tx.is_none() && debug {
+                            break;
+                        }
                         if let Some(msg) = msg_result {
                             if !msg.opcode().is_text() {
                                 continue;

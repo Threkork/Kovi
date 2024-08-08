@@ -118,7 +118,8 @@ impl OnMsgEvent {
     /// 快速回复文本
     pub fn reply<T>(&self, msg: T)
     where
-        T: Into<String> + Serialize,
+        String: From<T>,
+        T: Serialize,
     {
         let send_msg = if self.message_type == "private" {
             json!({
@@ -151,6 +152,14 @@ impl OnMsgEvent {
             Some(v) => v,
             None => "".to_string(),
         }
+    }
+
+    pub fn get_sender_nickname(&self) -> String {
+        self.sender.nickname.clone()
+    }
+
+    pub fn borrow_text(&self) -> Option<&str> {
+        self.text.as_ref().map(|text| text.as_str())
     }
 }
 
