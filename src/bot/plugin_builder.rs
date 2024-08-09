@@ -1,47 +1,19 @@
 use super::ApiMpsc;
 use super::{runtimebot::RuntimeBot, Bot};
 use event::{Event, OnAllNoticeEvent, OnMsgEvent};
-use std::error::Error as stdError;
-use std::fmt;
+use log::error;
 use std::sync::{Arc, RwLock};
 use std::{net::IpAddr, sync::mpsc};
-use thiserror::Error;
+use thiserror::Error as TError;
 
 pub mod event;
 
-pub type ListenFn = Arc<dyn Fn(&Event) -> Result<(), PluginError> + Send + Sync + 'static>;
+pub type ListenFn = Arc<dyn Fn(&Event) + Send + Sync + 'static>;
 
-#[derive(Error, Debug)]
+#[derive(TError, Debug)]
 pub enum PluginBuilderError {
     #[error("The information of the plugin is not set correctly")]
     InfoError(),
-}
-
-#[derive(Debug)]
-pub struct PluginError {
-    id: String,
-    error: String,
-}
-
-impl PluginError {
-    pub fn new<E>(id: String, error: E) -> Self
-    where
-        E: fmt::Display + stdError,
-    {
-        PluginError {
-            id,
-            error: error.to_string(),
-        }
-    }
-}
-
-impl fmt::Display for PluginError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "PluginError {}: {}", self.id, self.error)
-    }
-}
-
-impl stdError for PluginError {
 }
 
 #[derive(Clone)]
@@ -92,15 +64,6 @@ impl PluginBuilder {
         }
     }
 
-    /// 创建 plugin 错误, 但是还是要注意 set_info() 要设置好, 否则这个闭包线程会 **panic!()**
-    pub fn error<E>(&self, error: E) -> PluginError
-    where
-        E: fmt::Display + stdError,
-    {
-        let id = self.name.clone();
-        PluginError::new(id.unwrap(), error)
-    }
-
     pub fn set_info(&mut self, name: &str) {
         self.name = Some(name.to_string());
 
@@ -130,7 +93,7 @@ impl PluginBuilder {
     /// 闭包必须实现 `Send` 、 `Sync`和 `'static`，因为要保证多线程安全以及在确保闭包在整个程序生命周期有效。
     pub fn on_msg<F>(&mut self, handler: F) -> Result<(), PluginBuilderError>
     where
-        F: Fn(&OnMsgEvent) -> Result<(), PluginError> + Send + Sync + 'static,
+        F: Fn(&OnMsgEvent) + Send + Sync + 'static,
     {
         if self.name.is_none() {
             return Err(PluginBuilderError::InfoError());
@@ -164,7 +127,7 @@ impl PluginBuilder {
     /// 闭包必须实现 `Send` 、 `Sync`和 `'static`，因为要保证多线程安全以及在确保闭包在整个程序生命周期有效。
     pub fn on_admin_msg<F>(&mut self, handler: F) -> Result<(), PluginBuilderError>
     where
-        F: Fn(&OnMsgEvent) -> Result<(), PluginError> + Send + Sync + 'static,
+        F: Fn(&OnMsgEvent) + Send + Sync + 'static,
     {
         if self.name.is_none() {
             return Err(PluginBuilderError::InfoError());
@@ -198,7 +161,7 @@ impl PluginBuilder {
     /// 闭包必须实现 `Send` 、 `Sync`和 `'static`，因为要保证多线程安全以及在确保闭包在整个程序生命周期有效。
     pub fn on_all_notice<F>(&mut self, handler: F) -> Result<(), PluginBuilderError>
     where
-        F: Fn(&OnAllNoticeEvent) -> Result<(), PluginError> + Send + Sync + 'static,
+        F: Fn(&OnAllNoticeEvent) + Send + Sync + 'static,
     {
         if self.name.is_none() {
             return Err(PluginBuilderError::InfoError());

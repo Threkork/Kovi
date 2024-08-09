@@ -1,16 +1,14 @@
 use super::{
-    plugin_builder::{
-        event::{Event, OnAllNoticeEvent, OnMsgEvent},
-        ListenFn,
-    },
-    ApiMpsc, Bot, LifeStatus,
+    plugin_builder::{event::Event, ListenFn},
+    Bot, LifeStatus,
 };
 use crate::bot::exit_and_eprintln;
+use log::{debug, info};
 use serde_json::{json, Value};
-use std::sync::{mpsc, Arc, RwLock};
+use std::sync::{Arc, RwLock};
 use websocket_lite::{ClientBuilder, Message};
 
-pub fn handle_lifecycle(bot: Arc<RwLock<Bot>>, debug: bool) {
+pub fn handle_lifecycle(bot: Arc<RwLock<Bot>>) {
     let (host, port, access_token) = {
         let bot = bot.read().unwrap();
         (
@@ -42,9 +40,9 @@ pub fn handle_lifecycle(bot: Arc<RwLock<Bot>>, debug: bool) {
                     return;
                 }
                 let text = msg.as_text().unwrap();
-                if debug {
-                    println!("{}", text);
-                }
+
+                debug!("{}", text);
+
                 self_info_value = serde_json::from_str(text).unwrap();
             }
             None => exit_and_eprintln("Error, UnknownError"),
@@ -65,7 +63,7 @@ pub fn handle_lifecycle(bot: Arc<RwLock<Bot>>, debug: bool) {
         .get("nickname")
         .unwrap()
         .to_string();
-    println!(
+    info!(
         "Bot connection successful，Nickname:{},ID:{}",
         self_name, self_id
     );
@@ -78,28 +76,6 @@ pub fn handle_lifecycle(bot: Arc<RwLock<Bot>>, debug: bool) {
     }
 }
 
-pub fn handler_on_msg(api_tx: mpsc::Sender<ApiMpsc>, msg: &str, handler: ListenFn) {
-    let event = match OnMsgEvent::new(api_tx, msg) {
-        Ok(event) => event,
-        Err(_e) => {
-            return;
-        }
-    };
-    if let Err(err) = handler(&Event::OnMsg(event)) {
-        eprintln!("{}", err);
-    }
-}
-
-
-pub fn handler_on_all_notice(msg: &str, handler: ListenFn) {
-    let event = match OnAllNoticeEvent::new(msg) {
-        Ok(event) => event,
-        Err(_e) => {
-            return;
-        }
-    };
-
-    if let Err(err) = handler(&Event::OnAllNotice(event)) {
-        eprintln!("{}", err);
-    }
+pub fn handler_on(event: &Event, handler: ListenFn) {
+    handler(event)
 }

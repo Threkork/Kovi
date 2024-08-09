@@ -1,3 +1,4 @@
+use log::info;
 use serde::{Deserialize, Serialize};
 use serde_json::{self, json, Value};
 use std::sync::mpsc;
@@ -118,7 +119,8 @@ impl OnMsgEvent {
     /// 快速回复文本
     pub fn reply<T>(&self, msg: T)
     where
-        T: Into<String> + Serialize,
+        String: From<T>,
+        T: Serialize,
     {
         let send_msg = if self.message_type == "private" {
             json!({
@@ -141,7 +143,10 @@ impl OnMsgEvent {
             },
             "echo": "None" })
         };
-
+        let nickname = &self.sender.nickname;
+        let message_type = &self.message_type;
+        let msg = String::from(msg);
+        info!("[{message_type}] [reply {nickname}]: {msg}");
         self.api_tx.send((send_msg, None)).unwrap();
     }
 
@@ -151,6 +156,14 @@ impl OnMsgEvent {
             Some(v) => v,
             None => "".to_string(),
         }
+    }
+
+    pub fn get_sender_nickname(&self) -> String {
+        self.sender.nickname.clone()
+    }
+
+    pub fn borrow_text(&self) -> Option<&str> {
+        self.text.as_ref().map(|text| text.as_str())
     }
 }
 

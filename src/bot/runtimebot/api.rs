@@ -3,6 +3,8 @@ use std::sync::mpsc;
 use crate::error::{ApiError, Error};
 
 use super::RuntimeBot;
+use log::info;
+use serde::Serialize;
 use serde_json::{json, Value};
 
 pub enum HonorType {
@@ -17,7 +19,11 @@ pub enum HonorType {
 /// Kovi提供解析过的返回值的api
 impl RuntimeBot {
     ///发送群组消息, 并返回消息ID
-    pub fn send_group_msg_return(&self, group_id: i64, msg: &str) -> Result<i32, ApiError> {
+    pub fn send_group_msg_return<T>(&self, group_id: i64, msg: T) -> Result<i32, ApiError>
+    where
+        String: From<T>,
+        T: Serialize,
+    {
         let send_api = json!({
             "action": "send_msg",
             "params": {
@@ -27,7 +33,9 @@ impl RuntimeBot {
                 "auto_escape":true,
             },
             "echo": "Some" });
-
+        let msg = String::from(msg);
+        let group_id = &group_id;
+        info!("[group] [reply {group_id}]: {msg}");
         let api_rx = self.mpsc_and_send(send_api);
         match api_rx.recv().unwrap() {
             Ok(v) => Ok(v.get("message_id").unwrap().as_i64().unwrap() as i32),
@@ -37,7 +45,11 @@ impl RuntimeBot {
     }
 
     ///发送私聊消息, 并返回消息ID
-    pub fn send_private_msg_return(&self, user_id: i64, msg: &str) -> Result<i32, ApiError> {
+    pub fn send_private_msg_return<T>(&self, user_id: i64, msg: T) -> Result<i32, ApiError>
+    where
+        String: From<T>,
+        T: Serialize,
+    {
         let send_api = json!({
             "action": "send_msg",
             "params": {
@@ -47,7 +59,9 @@ impl RuntimeBot {
                 "auto_escape":true,
             },
             "echo": "Some" });
-
+        let msg = String::from(msg);
+        let user_id = &user_id;
+        info!("[private] [reply {user_id}]: {msg}");
         let api_rx = self.mpsc_and_send(send_api);
         match api_rx.recv().unwrap() {
             Ok(v) => Ok(v.get("message_id").unwrap().as_i64().unwrap() as i32),
@@ -180,7 +194,11 @@ impl RuntimeBot {
 // 这些都是无需处理返回值的api
 impl RuntimeBot {
     ///发送群组消息，如果需要返回消息id，请使用send_group_msg_return()
-    pub fn send_group_msg(&self, group_id: i64, msg: &str) {
+    pub fn send_group_msg<T>(&self, group_id: i64, msg: T)
+    where
+        String: From<T>,
+        T: Serialize,
+    {
         let send_api = json!({
             "action": "send_msg",
             "params": {
@@ -190,12 +208,18 @@ impl RuntimeBot {
                 "auto_escape":true,
             },
             "echo": "None" });
-
+        let msg = String::from(msg);
+        let group_id = &group_id;
+        info!("[group] [reply {group_id}]: {msg}");
         self.api_tx.send((send_api, None)).unwrap();
     }
 
     ///发送私聊消息，如果需要返回消息id，请使用send_private_msg_return()
-    pub fn send_private_msg(&self, user_id: i64, msg: &str) {
+    pub fn send_private_msg<T>(&self, user_id: i64, msg: T)
+    where
+        String: From<T>,
+        T: Serialize,
+    {
         let send_api = json!({
             "action": "send_msg",
             "params": {
@@ -205,7 +229,9 @@ impl RuntimeBot {
                 "auto_escape":true,
             },
             "echo": "None" });
-
+        let msg = String::from(msg);
+        let user_id = &user_id;
+        info!("[private] [reply {user_id}]: {msg}");
         self.api_tx.send((send_api, None)).unwrap();
     }
 
@@ -576,7 +602,7 @@ impl RuntimeBot {
             ))),
         }
     }
-    /// 获取合并转发消息
+    /// 获取获取登录号信息
     pub fn get_login_info(&self) -> Result<Value, ApiError> {
         let send_api = json!({
             "action": "get_login_info",
@@ -589,7 +615,7 @@ impl RuntimeBot {
             Err(_) => Err(ApiError::UnknownError()),
         }
     }
-    /// 获取合并转发消息
+    /// 获取获取陌生人信息
     /// # Arguments
     ///
     /// `user_id`
@@ -755,7 +781,6 @@ impl RuntimeBot {
             ))),
         }
     }
-
 
     /// 获取相关接口凭证, 即 Cookies 和 CSRF Token 的合并。
     ///
