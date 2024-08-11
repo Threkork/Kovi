@@ -163,7 +163,7 @@ impl OnMsgEvent {
     }
 
     pub fn borrow_text(&self) -> Option<&str> {
-        self.text.as_ref().map(|text| text.as_str())
+        self.text.as_deref()
     }
 }
 

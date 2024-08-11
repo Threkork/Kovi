@@ -1,6 +1,5 @@
 use crate::error::Error;
 use crate::log::set_log;
-use default_plugin::default_plugin_main;
 use dialoguer::theme::ColorfulTheme;
 use dialoguer::Input;
 use log::{debug, error, info};
@@ -18,18 +17,18 @@ use std::sync::RwLock;
 use std::{fs, net::IpAddr, process::exit, sync::Arc, thread};
 use websocket_lite::{ClientBuilder, Message};
 
-mod default_plugin;
 mod handler;
 pub mod plugin_builder;
 pub mod runtimebot;
 
 /// 将配置文件写入磁盘
 fn config_file_write_and_return() -> Result<ConfigJson, std::io::Error> {
-    let host: IpAddr = Input::with_theme(&ColorfulTheme::default())
+    let ip_addr = Input::with_theme(&ColorfulTheme::default())
         .with_prompt("What is the IP of the OneBot server?")
         .default(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)))
         .interact_text()
         .unwrap();
+    let host: IpAddr = ip_addr;
 
     let port: u16 = Input::with_theme(&ColorfulTheme::default())
         .with_prompt("What is the port of the OneBot server?")
@@ -69,25 +68,6 @@ fn config_file_write_and_return() -> Result<ConfigJson, std::io::Error> {
     Ok(config)
 }
 
-/// bot信息结构体
-#[derive(Clone)]
-pub struct BotInformation {
-    id: i64,
-    nickname: String,
-    main_admin: i64,
-    admin: Vec<i64>,
-    server: Server,
-}
-
-/// bot结构体
-#[derive(Clone)]
-pub struct Bot {
-    information: BotInformation,
-    main: Vec<Arc<dyn Fn(PluginBuilder) + Send + Sync + 'static>>,
-    plugins: Vec<Plugin>,
-    life: BotLife,
-}
-
 #[derive(Deserialize, Serialize)]
 struct ConfigJson {
     main_admin: i64,
@@ -97,6 +77,32 @@ struct ConfigJson {
     debug: bool,
 }
 
+/// bot结构体
+#[derive(Clone)]
+pub struct Bot {
+    information: BotInformation,
+    main: Vec<BotMain>,
+    /* main: Vec<Arc<dyn Fn(PluginBuilder) + Send + Sync + 'static>>, */
+    plugins: Vec<Plugin>,
+    life: BotLife,
+}
+
+#[derive(Clone)]
+pub struct BotMain {
+    pub name: String,
+    pub version: String,
+    pub main: Arc<dyn Fn(PluginBuilder) + Send + Sync + 'static>,
+}
+
+/// bot信息结构体
+#[derive(Debug, Clone)]
+pub struct BotInformation {
+    id: i64,
+    nickname: String,
+    main_admin: i64,
+    admin: Vec<i64>,
+    server: Server,
+}
 /// server信息
 #[derive(Deserialize, Serialize, Debug, Clone)]
 pub struct Server {
@@ -164,9 +170,22 @@ impl Bot {
     ///     .mount_main(Arc::new(hello::main));
     /// bot.run()
     /// ```
-    pub fn mount_main(mut self, main: Arc<dyn Fn(PluginBuilder) + Send + Sync + 'static>) -> Self {
-        self.main.push(main);
-        self
+    pub fn mount_main<T>(
+        &mut self,
+        name: T,
+        version: T,
+        main: Arc<dyn Fn(PluginBuilder) + Send + Sync + 'static>,
+    ) where
+        String: From<T>,
+    {
+        let name = String::from(name);
+        let version = String::from(version);
+        let bot_main = BotMain {
+            name,
+            version,
+            main,
+        };
+        self.main.push(bot_main)
     }
 }
 
@@ -198,7 +217,7 @@ impl Bot {
 
         let msg_tx_clone = msg_tx.clone();
         let access_token_clone = access_token.clone();
-        let connect_job = thread::spawn(move || {
+        let connect_task = thread::spawn(move || {
             Self::ws_connect(host, port, access_token_clone, msg_tx_clone);
         });
 
@@ -206,44 +225,15 @@ impl Bot {
         let (api_tx, api_rx): (mpsc::Sender<ApiMpsc>, mpsc::Receiver<ApiMpsc>) = mpsc::channel();
 
         let access_token_clone = access_token.clone();
-        let send_api_job = thread::spawn(move || {
+        let send_api_task = thread::spawn(move || {
             Self::ws_send_api(host, port, access_token_clone, api_rx);
         });
 
-        {
-            let plugin_builder = PluginBuilder::new(bot.clone(), api_tx.clone());
-            default_plugin_main(plugin_builder, bot.clone())
-        }
 
-        // 运行所有main()
-        let bot_main_job_clone = bot.clone();
-        let api_tx_main_job_clone = api_tx.clone();
-        let handler_main_job = thread::spawn(move || {
-            let mut main_job_vec;
-            {
-                let bot = bot_main_job_clone.read().unwrap();
-                main_job_vec = bot.main.clone();
-            }
-
-            //储存所有main()
-            let mut handler_main_job = Vec::new();
-
-            for _ in 0..main_job_vec.len() {
-                let main_job = main_job_vec.pop().unwrap();
-                let bot_main_job_clone = bot_main_job_clone.clone();
-                let api_tx = api_tx_main_job_clone.clone();
-                handler_main_job.push(thread::spawn(move || {
-                    //plugin创建
-                    let plugin_builder = PluginBuilder::new(bot_main_job_clone.clone(), api_tx);
-                    //多线程运行main()
-                    main_job(plugin_builder);
-                }));
-            }
-            //等待所有main()结束
-            for handler in handler_main_job {
-                handler.join().unwrap();
-            }
-        });
+        let main_task_bot = bot.clone();
+        let api_tx_clone = api_tx.clone();
+        let handler_main_task =
+            thread::spawn(move || Self::plugin_main(main_task_bot, api_tx_clone));
 
         //处理消息，每个消息事件都会来到这里
         for msg in msg_rx {
@@ -254,9 +244,41 @@ impl Bot {
             });
         }
 
-        handler_main_job.join().unwrap();
-        connect_job.join().unwrap();
-        send_api_job.join().unwrap();
+        handler_main_task.join().unwrap();
+        connect_task.join().unwrap();
+        send_api_task.join().unwrap();
+    }
+
+    fn plugin_main(bot: Arc<RwLock<Self>>, api_tx: mpsc::Sender<ApiMpsc>) {
+        // 运行所有main()
+        let bot_main_job_clone = bot.clone();
+        let api_tx_main_job_clone = api_tx.clone();
+
+        let mut main_job_vec;
+        {
+            let bot = bot_main_job_clone.read().unwrap();
+            main_job_vec = bot.main.clone();
+        }
+
+        //储存所有main()
+        let mut handler_main_job = Vec::new();
+
+        for _ in 0..main_job_vec.len() {
+            let main_job = main_job_vec.pop().unwrap();
+            let bot_main_job_clone = bot_main_job_clone.clone();
+            let api_tx = api_tx_main_job_clone.clone();
+            handler_main_job.push(thread::spawn(move || {
+                //plugin创建
+                let plugin_builder =
+                    PluginBuilder::new(main_job.name.clone(), bot_main_job_clone.clone(), api_tx);
+                //多线程运行main()
+                (main_job.main)(plugin_builder);
+            }));
+        }
+        //等待所有main()结束
+        for handler in handler_main_job {
+            handler.join().unwrap();
+        }
     }
 
     fn handler_msg(bot: Arc<RwLock<Self>>, msg: String, api_tx: mpsc::Sender<ApiMpsc>) {
@@ -474,6 +496,18 @@ where
     E: std::fmt::Display,
 {
     error!("{e}\nBot connection failed, please check the configuration and restart Kovi");
-
     exit(1);
+}
+
+#[macro_export]
+macro_rules! build_bot {
+    ($($plugin:ident),*) => {{
+        let mut bot = kovi::bot::Bot::build();
+        $(
+            let (crate_name, crate_version) = $plugin::__kovi__get_crate_name();
+            println!("Mounting plugin: {}", crate_name);
+            bot.mount_main(crate_name, crate_version, std::sync::Arc::new($plugin::main));
+        )*
+        bot
+    }};
 }

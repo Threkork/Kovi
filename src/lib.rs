@@ -5,8 +5,11 @@
 //！
 //！ More documentation can be found at [Github-Kovi](https://github.com/Threkork/Kovi)
 
+
+mod log;
+
+pub use kovi_macros::plugin;
+
 /// Everything about bots is inside
 pub mod bot;
 pub mod error;
-
-mod log;

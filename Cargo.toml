@@ -21,3 +21,4 @@ env_logger = { version = "0.11.5", default-features = false, features = [
 chrono = "0.4"
 log = "0.4"
 anstyle = "1.0.8"
+kovi-macros = { path = "../kovi-macros" }
