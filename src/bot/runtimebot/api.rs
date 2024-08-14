@@ -83,7 +83,7 @@ impl RuntimeBot {
             Err(_) => Err(ApiError::UnknownError()),
         }
     }
-    /// 是否能发生语音
+    /// 是否能发送语音
     pub fn can_send_record(&self) -> Result<bool, ApiError> {
         let send_api = json!({
             "action": "can_send_record",
@@ -833,6 +833,51 @@ impl RuntimeBot {
         }
     }
 }
+
+impl RuntimeBot {
+    /// 发送拓展 Api, 此方法无需关注返回值，返回值将丢失。
+    ///
+    /// 如需要返回值，请使用 `send_api_return()`
+    ///
+    /// # Arguments
+    ///
+    /// `action`: 拓展 Api 的方法名
+    ///
+    /// `params`: 参数
+    pub fn send_api(&self, action: &str, params: Value) {
+        let send_api = json!({
+            "action": action,
+            "params": params,
+            "echo": "None" });
+
+        self.api_tx.send((send_api, None)).unwrap();
+    }
+    /// 发送拓展 Api, 此方法关注返回值。
+    ///
+    /// 如不需要返回值，推荐使用 `send_api()`
+    ///
+    /// # Arguments
+    ///
+    /// `action`: 拓展 Api 的方法名
+    ///
+    /// `params`: 参数
+    pub fn send_api_return(&self, action: &str, params: Value) -> Result<Value, ApiError> {
+        let send_api = json!({
+            "action": action,
+            "params": params,
+            "echo": "Some" });
+        let api_rx = self.mpsc_and_send(send_api);
+        match api_rx.recv().unwrap() {
+            Ok(v) => Ok(v),
+            // 参数错误
+            Err(_) => Err(ApiError::ParamsError(format!(
+                "Check the incoming parameter: action: '{}' params: '{}'",
+                action, params
+            ))),
+        }
+    }
+}
+
 
 impl RuntimeBot {
     fn mpsc_and_send(&self, send_api: Value) -> mpsc::Receiver<Result<Value, Error>> {

@@ -10,6 +10,8 @@
 
 A OneBot V11 bot plugin framework developed in Rust.
 
+More documentation can be found in the [Kovi Doc](https://www.threkork.me/kovi-doc/).
+
 The project is currently in beta.
 
 More features will be added in future updates.
@@ -163,4 +165,6 @@ The `main()` function runs only once when KoviBot starts.
 
 The closure passed to `plugin.on_msg()` runs every time a message is received.
 
-Kovi has encapsulated all available OneBot standard APIs. To extend the API, you can use `RuntimeBot`'s `api_tx` to send APIs yourself.
+Kovi has encapsulated all available OneBot standard APIs. To extend the API, you can use `RuntimeBot`'s `send_api()` to send APIs yourself.
+
+More documentation can be found in the [Kovi Doc](https://www.threkork.me/kovi-doc/).

@@ -8,7 +8,9 @@
 
 # Kovi
 
-使用 Rust 开发的**快速轻量** OneBot V11 机器人插件框架。
+使用 Rust 开发的 OneBot V11 机器人插件框架。
+
+你可以在 [Kovi使用手册](https://www.threkork.me/kovi-doc/) 看到更多文档
 
 项目处于 beta 状态。
 
@@ -163,4 +165,6 @@ pub fn main(mut plugin: PluginBuilder) {
 
 向 `plugin.on_msg()` 传入的闭包，会在每一次接收消息时运行。
 
-Kovi 已封装所有可用 OneBot 标准 api ，拓展 api 你可以使用 `RuntimeBot` 的 `api_tx` 来自行发送 api
+Kovi 已封装所有可用 OneBot 标准 api ，拓展 api 你可以使用 `RuntimeBot` 的 `send_api()` 来自行发送 api
+
+你可以在 [Kovi使用手册](https://www.threkork.me/kovi-doc/) 看到更多文档

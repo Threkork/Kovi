@@ -7,8 +7,8 @@ use crate::bot::{message::Message, ApiMpsc};
 
 #[derive(Clone)]
 pub enum Event {
-    OnMsg(OnMsgEvent),
-    OnAllNotice(OnAllNoticeEvent),
+    OnMsg(AllMsgEvent),
+    OnAllNotice(AllNoticeEvent),
 }
 
 
@@ -38,35 +38,49 @@ pub struct Anonymous {
 }
 
 #[derive(Debug, Clone)]
-pub struct OnMsgEvent {
+pub struct AllMsgEvent {
+    /// 事件发生的时间戳
     pub time: i64,
+    /// 收到事件的机器人 登陆号
     pub self_id: i64,
+    /// 上报类型
     pub post_type: String,
+    /// 消息类型
     pub message_type: String,
+    /// 消息子类型，如果是好友则是 friend，如果是群临时会话则是 group
     pub sub_type: String,
+    /// 消息内容
     pub message: Message,
+    /// 消息 ID
     pub message_id: i32,
+    /// 群号
     pub group_id: Option<i64>,
+    /// 发送者号
     pub user_id: i64,
+    /// 匿名信息，如果不是匿名消息则为 null
     pub anonymous: Option<Anonymous>,
+    /// 原始消息内容
     pub raw_message: String,
+    /// 字体
     pub font: i32,
+    /// 发送人信息
     pub sender: Sender,
 
-    api_tx: mpsc::Sender<ApiMpsc>,
     /// 处理过的纯文本，如果是纯图片或无文本，此初为None
     pub text: Option<String>,
-    /// 处理过的文本，会解析成人类易读形式，里面会包含[image][face]等解析后字符串
+    /// 处理过的文本，会解析成人类易读形式，里面会包含\[image\]\[face\]等解析后字符串
     pub human_text: String,
     /// 原始未处理的onebot消息，为json格式，使用需处理
     pub original_msg: String,
+
+    api_tx: mpsc::Sender<ApiMpsc>,
 }
 
-impl OnMsgEvent {
+impl AllMsgEvent {
     pub fn new(
         api_tx: mpsc::Sender<ApiMpsc>,
         msg: &str,
-    ) -> Result<OnMsgEvent, Box<dyn std::error::Error>> {
+    ) -> Result<AllMsgEvent, Box<dyn std::error::Error>> {
         let temp: Value = serde_json::from_str(msg)?;
 
 
@@ -164,7 +178,7 @@ impl OnMsgEvent {
             }
         };
 
-        let event = OnMsgEvent {
+        let event = AllMsgEvent {
             human_text: message.to_human_string(),
             time: temp_object["time"].as_i64().unwrap(),
             self_id: temp_object["self_id"].as_i64().unwrap(),
@@ -188,7 +202,7 @@ impl OnMsgEvent {
     }
 }
 
-impl OnMsgEvent {
+impl AllMsgEvent {
     fn reply_builder<T>(&self, msg: T, auto_escape: bool) -> Value
     where
         T: Serialize,
@@ -281,7 +295,7 @@ impl OnMsgEvent {
     }
 
 
-    /// 获取文本，如果没有文本则会返回空字符串
+    /// 获取文本，如果没有文本则会返回空字符串，如果只需要借用，请使用 `borrow_text()`
     pub fn get_text(&self) -> String {
         match self.text.clone() {
             Some(v) => v,
@@ -289,6 +303,7 @@ impl OnMsgEvent {
         }
     }
 
+    /// 获取发送者昵称
     pub fn get_sender_nickname(&self) -> String {
         if let Some(v) = &self.sender.nickname {
             v.clone()
@@ -297,29 +312,36 @@ impl OnMsgEvent {
         }
     }
 
+    /// 借用 event 的 text
     pub fn borrow_text(&self) -> Option<&str> {
         self.text.as_deref()
     }
 }
 
 #[derive(Clone)]
-pub struct OnAllNoticeEvent {
+pub struct AllNoticeEvent {
+    /// 事件发生的时间戳
     pub time: i64,
+    /// 收到事件的机器人 登陆号
     pub self_id: i64,
+    /// 上报类型
     pub post_type: String,
+    /// 通知类型
     pub notice_type: String,
 
+    /// 原始的onebot消息，已处理成json格式
     pub original_json: Value,
+    /// 原始未处理的onebot消息，为json格式，使用需处理
     pub original_msg: String,
 }
-impl OnAllNoticeEvent {
-    pub fn new(msg: &str) -> Result<OnAllNoticeEvent, Box<dyn std::error::Error>> {
+impl AllNoticeEvent {
+    pub fn new(msg: &str) -> Result<AllNoticeEvent, Box<dyn std::error::Error>> {
         let temp: Value = serde_json::from_str(msg)?;
         let time = temp.get("time").unwrap().as_i64().unwrap();
         let self_id = temp.get("self_id").unwrap().as_i64().unwrap();
         let post_type = temp.get("post_type").unwrap().to_string();
         let notice_type = temp.get("notice_type").unwrap().to_string();
-        Ok(OnAllNoticeEvent {
+        Ok(AllNoticeEvent {
             time,
             self_id,
             post_type,

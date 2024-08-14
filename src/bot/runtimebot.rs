@@ -19,6 +19,7 @@ pub type ApiMpsc = (Value, Option<mpsc::Sender<Result<Value, Error>>>);
 /// }
 /// ```
 #[allow(clippy::needless_doctest_main)]
+#[derive(Debug, Clone)]
 pub struct RuntimeBot {
     /// 主管理员
     pub main_admin: i64,

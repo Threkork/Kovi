@@ -2,6 +2,9 @@ use regex::Regex;
 use serde::{ser::Serializer, Serialize};
 use serde_json::{json, Value};
 
+
+pub mod add;
+
 /// 消息枚举，含有两种消息， CQString 和 Array 。
 ///
 /// 两者可互相转换。
@@ -66,86 +69,6 @@ impl From<Vec<Value>> for Message {
 
 
 impl Message {
-    /// 在消息加上引用
-    pub fn add_reply(mut self, message_id: i32) -> Self {
-        match &mut self {
-            Message::Array(ref mut array) => {
-                let reply = json!({
-                    "type": "reply",
-                    "data": {
-                        "id": message_id.to_string()
-                    }
-                });
-                array.insert(0, reply);
-            }
-            Message::CQString(ref mut string) => {
-                let reply = format!("[CQ:reply,id={message_id}]");
-                string.insert_str(0, &reply);
-            }
-        }
-
-        self
-    }
-    /// 在消息加上表情, 具体 id 请看服务端文档, 本框架不提供
-    pub fn add_face(mut self, id: i64) -> Self {
-        match &mut self {
-            Message::Array(ref mut array) => {
-                let reply = json!({
-                    "type": "face",
-                    "data": {
-                        "id": id.to_string()
-                    }
-                });
-                array.push(reply);
-            }
-            Message::CQString(ref mut string) => {
-                let reply = format!("[CQ:face,id={id}]");
-                string.push_str(&reply);
-            }
-        }
-
-        self
-    }
-    /// 在消息加上图片
-    ///
-    /// 绝对路径，例如 file:///C:\\Users\Richard\Pictures\1.png，格式使用 file URI, 注意windows与Linux文件格式会不同，具体看OneBot服务端实现。
-    ///
-    /// 网络 URL，例如 http://i1.piimg.com/567571/fdd6e7b6d93f1ef0.jpg
-    ///
-    /// Base64 编码，例如 base64://iVBORw0KGgoAAAANSUhEUgAAABQAAAAVCAIAAADJt1n/AAAAKElEQVQ4EWPk5+RmIBcwkasRpG9UM4mhNxpgowFGMARGEwnBIEJVAAAdBgBNAZf+QAAAAABJRU5ErkJggg==
-    pub fn add_image(mut self, file: &str) -> Self {
-        match &mut self {
-            Message::Array(ref mut array) => {
-                let reply = json!({
-                    "type": "image",
-                    "data": {
-                        "id": file
-                    }
-                });
-                array.push(reply);
-            }
-            Message::CQString(ref mut string) => {
-                let reply = format!("[CQ:image,file={file}]");
-                string.push_str(&reply);
-            }
-        }
-
-        self
-    }
-    /// 在消息后面加上 segment
-    pub fn add_segment(mut self, segment: Value) -> Self {
-        match &mut self {
-            Message::Array(ref mut array) => {
-                array.push(segment);
-            }
-            Message::CQString(ref mut string) => {
-                let segment = Self::parse_cq_code(&segment);
-                string.push_str(&segment);
-            }
-        }
-        self
-    }
-
     /// Message::CQString 转换成 Array ，如果本来就是 CQString 则不变。
     pub fn into_array(self) -> Message {
         match self {
@@ -276,7 +199,7 @@ impl Message {
         Message::CQString(result)
     }
 
-    /// Message 解析成人类可读字符串, 里面会将 segment 转换成 `[type]` 字符串，如： image segment 会转换成 `[image]` 字符串
+    /// Message 解析成人类可读字符串, 会将里面的 segment 转换成 `[type]` 字符串，如： image segment 会转换成 `[image]` 字符串
     pub fn to_human_string(&self) -> String {
         match self {
             Message::Array(array) => {
@@ -370,7 +293,7 @@ impl Message {
             Message::CQString(_) => false,
         }
     }
-    /// 检查 Message 是否包含任意一项 segment 。返回 bool
+    /// 检查 Message 是否包含任意一项 segment 。返回 bool。
     ///
     /// # Examples
     /// ```
@@ -405,7 +328,7 @@ impl Message {
         }
     }
 
-    /// 获取 Message 任意一种 segment 。返回 Vec<Value>，有多少项，就会返回多少项。
+    /// 获取 Message 任意一种 segment 。返回 `Vec<Value>`，有多少项，就会返回多少项。
     ///
     /// # Examples
     /// ```

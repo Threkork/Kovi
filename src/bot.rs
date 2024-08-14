@@ -3,7 +3,7 @@ use crate::log::set_log;
 use dialoguer::theme::ColorfulTheme;
 use dialoguer::Input;
 use log::{debug, error, info};
-use plugin_builder::event::{Event, OnAllNoticeEvent, OnMsgEvent};
+use plugin_builder::event::{AllMsgEvent, AllNoticeEvent, Event};
 use plugin_builder::{OnType, Plugin, PluginBuilder};
 use runtimebot::ApiMpsc;
 use serde::{Deserialize, Serialize};
@@ -299,7 +299,7 @@ impl Bot {
 
         let event = match msg_json.get("post_type").unwrap().as_str().unwrap() {
             "message" => {
-                let e = match OnMsgEvent::new(api_tx, msg.as_str()) {
+                let e = match AllMsgEvent::new(api_tx, msg.as_str()) {
                     Ok(event) => event,
                     Err(e) => {
                         error!("{e}");
@@ -319,7 +319,7 @@ impl Bot {
                 Event::OnMsg(e)
             }
             "notice" => {
-                let e = match OnAllNoticeEvent::new(&msg) {
+                let e = match AllNoticeEvent::new(&msg) {
                     Ok(event) => event,
                     Err(e) => {
                         error!("{e}");
@@ -459,6 +459,11 @@ impl Bot {
                             }
                             drop(ws);
                             let text = msg.as_text().unwrap();
+                            let return_value: Value = serde_json::from_str(text).unwrap();
+
+                            if return_value.get("status").unwrap().as_str().unwrap() != "ok" {
+                                error!("Api return error: {text}")
+                            }
 
                             debug!("{}", text);
 
@@ -467,7 +472,6 @@ impl Bot {
                                 None => break,
                             };
 
-                            let return_value: Value = serde_json::from_str(text).unwrap();
                             let status = return_value.get("status").unwrap().as_str().unwrap();
                             if status == "ok" {
                                 api_tx
