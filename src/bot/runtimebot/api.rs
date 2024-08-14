@@ -1,10 +1,12 @@
-use std::sync::mpsc;
-
-use crate::error::{ApiError, Error};
-
 use super::RuntimeBot;
+use crate::{
+    bot::message::Message,
+    error::{ApiError, Error},
+};
+use log::info;
 use serde::Serialize;
 use serde_json::{json, Value};
+use std::sync::mpsc;
 
 pub enum HonorType {
     All,
@@ -20,7 +22,7 @@ impl RuntimeBot {
     ///发送群组消息, 并返回消息ID
     pub fn send_group_msg_return<T>(&self, group_id: i64, msg: T) -> Result<i32, ApiError>
     where
-        String: From<T>,
+        Message: From<T>,
         T: Serialize,
     {
         let send_api = json!({
@@ -32,7 +34,9 @@ impl RuntimeBot {
                 "auto_escape":true,
             },
             "echo": "Some" });
-
+        let msg = Message::from(msg);
+        let group_id = &group_id;
+        info!("[send] [to group {group_id}]: {}", msg.to_human_string());
         let api_rx = self.mpsc_and_send(send_api);
         match api_rx.recv().unwrap() {
             Ok(v) => Ok(v.get("message_id").unwrap().as_i64().unwrap() as i32),
@@ -44,7 +48,7 @@ impl RuntimeBot {
     ///发送私聊消息, 并返回消息ID
     pub fn send_private_msg_return<T>(&self, user_id: i64, msg: T) -> Result<i32, ApiError>
     where
-        String: From<T>,
+        Message: From<T>,
         T: Serialize,
     {
         let send_api = json!({
@@ -56,7 +60,9 @@ impl RuntimeBot {
                 "auto_escape":true,
             },
             "echo": "Some" });
-
+        let msg = Message::from(msg);
+        let user_id = &user_id;
+        info!("[send] [to private {user_id}]: {}", msg.to_human_string());
         let api_rx = self.mpsc_and_send(send_api);
         match api_rx.recv().unwrap() {
             Ok(v) => Ok(v.get("message_id").unwrap().as_i64().unwrap() as i32),
@@ -77,7 +83,7 @@ impl RuntimeBot {
             Err(_) => Err(ApiError::UnknownError()),
         }
     }
-    /// 是否能发生语音
+    /// 是否能发送语音
     pub fn can_send_record(&self) -> Result<bool, ApiError> {
         let send_api = json!({
             "action": "can_send_record",
@@ -191,7 +197,7 @@ impl RuntimeBot {
     ///发送群组消息，如果需要返回消息id，请使用send_group_msg_return()
     pub fn send_group_msg<T>(&self, group_id: i64, msg: T)
     where
-        String: From<T>,
+        Message: From<T>,
         T: Serialize,
     {
         let send_api = json!({
@@ -203,14 +209,16 @@ impl RuntimeBot {
                 "auto_escape":true,
             },
             "echo": "None" });
-
+        let msg = Message::from(msg);
+        let group_id = &group_id;
+        info!("[send] [to group {group_id}]: {}", msg.to_human_string());
         self.api_tx.send((send_api, None)).unwrap();
     }
 
     ///发送私聊消息，如果需要返回消息id，请使用send_private_msg_return()
     pub fn send_private_msg<T>(&self, user_id: i64, msg: T)
     where
-        String: From<T>,
+        Message: From<T>,
         T: Serialize,
     {
         let send_api = json!({
@@ -222,7 +230,9 @@ impl RuntimeBot {
                 "auto_escape":true,
             },
             "echo": "None" });
-
+        let msg = Message::from(msg);
+        let user_id = &user_id;
+        info!("[send] [to private {user_id}]: {}", msg.to_human_string());
         self.api_tx.send((send_api, None)).unwrap();
     }
 
@@ -773,7 +783,6 @@ impl RuntimeBot {
         }
     }
 
-
     /// 获取相关接口凭证, 即 Cookies 和 CSRF Token 的合并。
     ///
     /// # Arguments
@@ -824,6 +833,51 @@ impl RuntimeBot {
         }
     }
 }
+
+impl RuntimeBot {
+    /// 发送拓展 Api, 此方法无需关注返回值，返回值将丢失。
+    ///
+    /// 如需要返回值，请使用 `send_api_return()`
+    ///
+    /// # Arguments
+    ///
+    /// `action`: 拓展 Api 的方法名
+    ///
+    /// `params`: 参数
+    pub fn send_api(&self, action: &str, params: Value) {
+        let send_api = json!({
+            "action": action,
+            "params": params,
+            "echo": "None" });
+
+        self.api_tx.send((send_api, None)).unwrap();
+    }
+    /// 发送拓展 Api, 此方法关注返回值。
+    ///
+    /// 如不需要返回值，推荐使用 `send_api()`
+    ///
+    /// # Arguments
+    ///
+    /// `action`: 拓展 Api 的方法名
+    ///
+    /// `params`: 参数
+    pub fn send_api_return(&self, action: &str, params: Value) -> Result<Value, ApiError> {
+        let send_api = json!({
+            "action": action,
+            "params": params,
+            "echo": "Some" });
+        let api_rx = self.mpsc_and_send(send_api);
+        match api_rx.recv().unwrap() {
+            Ok(v) => Ok(v),
+            // 参数错误
+            Err(_) => Err(ApiError::ParamsError(format!(
+                "Check the incoming parameter: action: '{}' params: '{}'",
+                action, params
+            ))),
+        }
+    }
+}
+
 
 impl RuntimeBot {
     fn mpsc_and_send(&self, send_api: Value) -> mpsc::Receiver<Result<Value, Error>> {
