@@ -10,9 +10,9 @@
 
 使用 Rust 开发的**快速轻量** OneBot V11 机器人插件框架。
 
-项目处于 beta 状态，目前已具备 **消息监听** 与 **api能力** 。
+项目处于 beta 状态。
 
-其他能力请等待开发。
+更多能力请等待开发。
 
 **注意⚠️，项目处于 Beta 状态，以下可能会变动**
 
@@ -49,14 +49,14 @@ cargo add Kovi
 
 2. 在 **src/main.rs** 创建bot实例
 ```rust
-use kovi::bot::Bot;
+use kovi::build_bot;
 fn main() {
-    let bot = Bot::build();
+    let bot = build_bot!();
     bot.run()
 }
 ```
 
-如果是第一次运行，在 `Bot::build()` 时，会提示输入一些信息以创建 `kovi.conf.json` 文件，这是Kovi运行所需的信息。
+如果是第一次运行，在 `build_bot` 时，会提示输入一些信息以创建 `kovi.conf.json` 文件，这是Kovi运行所需的信息。
 
 ```
 ✔ What is the IP of the OneBot server? · 127.0.0.1
@@ -106,28 +106,24 @@ Cargo 会帮你做好一切的。
 
 ```rust
 // 导入插件构造结构体
-use kovi::bot::plugin_builder::PluginBuilder;
+use kovi::PluginBuilder;
 
-// 要mian函数传入 mut plugin 这是挂载插件所必需的。
+#[kovi::plugin] //构造插件
 pub fn main(mut plugin: PluginBuilder) {
-    // 设定插件名字，没有设定名字的话，所有的监听都会返回错误
-    plugin.set_info("hi");
-
-    // on_msg() 为监听消息，event 里面包含本次消息的所有信息。
+    // 必须要求main传入 PluginBuilder ，这是插件的基础。
+    
     plugin.on_msg(move |event| {
-            if event.text == Option::Some("Hi Bot".to_string()) {
-                event.reply("Hi!")
-            }
-            // 必须返回一个Ok()，可以通过plugin.error()返回error。
-            Ok(())
-        }) // 只要名字设置正确，此处不会返回错误，所以 .unwrap() 就行
-        .unwrap();
+        // on_msg() 为监听消息，event 里面包含本次消息的所有信息。
+        if event.borrow_text() == Some("Hi Bot") {
+            event.reply("Hi!") //快捷回复
+        }
+    });
 }
 ```
 
 main函数写在 `lib.rs` 是因为等下要导出给bot实例挂载。
 
-插件一般不需要 ` main.rs`
+插件一般不需要 `main.rs`
 
 ### 挂载插件
 
@@ -138,18 +134,12 @@ cargo add --path plugins/hi
 ```
 
 ```rust
-use kovi::bot::Bot;
-use std::sync::Arc;
+use kovi::build_bot;
 
 fn main() {
-    let bot = Bot::build();
-    let bot = bot
-        .mount_main(Arc::new(hi::main))
-        .mount_main(Arc::new(hi2::main))
-        .mount_main(Arc::new(hi3::main));
+    let bot = build_bot!(hi,hi2,plugin123);
     bot.run()
 }
-
 ```
 
 ### 更多插件例子
@@ -157,10 +147,10 @@ fn main() {
 #### bot 主动发言
 
 ```rust
-use kovi::bot::plugin_builder::PluginBuilder;
+use kovi::PluginBuilder;
 
+#[kovi::plugin]
 pub fn main(mut plugin: PluginBuilder) {
-    plugin.set_info("online");
     // 构造RuntimeBot
     let bot = plugin.build_runtime_bot();
     let user_id = bot.main_admin;

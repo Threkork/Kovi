@@ -1,11 +1,12 @@
-use std::sync::mpsc;
-
-use crate::error::{ApiError, Error};
-
 use super::RuntimeBot;
+use crate::{
+    bot::message::Message,
+    error::{ApiError, Error},
+};
 use log::info;
 use serde::Serialize;
 use serde_json::{json, Value};
+use std::sync::mpsc;
 
 pub enum HonorType {
     All,
@@ -21,7 +22,7 @@ impl RuntimeBot {
     ///发送群组消息, 并返回消息ID
     pub fn send_group_msg_return<T>(&self, group_id: i64, msg: T) -> Result<i32, ApiError>
     where
-        String: From<T>,
+        Message: From<T>,
         T: Serialize,
     {
         let send_api = json!({
@@ -33,9 +34,9 @@ impl RuntimeBot {
                 "auto_escape":true,
             },
             "echo": "Some" });
-        let msg = String::from(msg);
+        let msg = Message::from(msg);
         let group_id = &group_id;
-        info!("[group] [reply {group_id}]: {msg}");
+        info!("[send] [to group {group_id}]: {}", msg.to_human_string());
         let api_rx = self.mpsc_and_send(send_api);
         match api_rx.recv().unwrap() {
             Ok(v) => Ok(v.get("message_id").unwrap().as_i64().unwrap() as i32),
@@ -47,7 +48,7 @@ impl RuntimeBot {
     ///发送私聊消息, 并返回消息ID
     pub fn send_private_msg_return<T>(&self, user_id: i64, msg: T) -> Result<i32, ApiError>
     where
-        String: From<T>,
+        Message: From<T>,
         T: Serialize,
     {
         let send_api = json!({
@@ -59,9 +60,9 @@ impl RuntimeBot {
                 "auto_escape":true,
             },
             "echo": "Some" });
-        let msg = String::from(msg);
+        let msg = Message::from(msg);
         let user_id = &user_id;
-        info!("[private] [reply {user_id}]: {msg}");
+        info!("[send] [to private {user_id}]: {}", msg.to_human_string());
         let api_rx = self.mpsc_and_send(send_api);
         match api_rx.recv().unwrap() {
             Ok(v) => Ok(v.get("message_id").unwrap().as_i64().unwrap() as i32),
@@ -196,7 +197,7 @@ impl RuntimeBot {
     ///发送群组消息，如果需要返回消息id，请使用send_group_msg_return()
     pub fn send_group_msg<T>(&self, group_id: i64, msg: T)
     where
-        String: From<T>,
+        Message: From<T>,
         T: Serialize,
     {
         let send_api = json!({
@@ -208,16 +209,16 @@ impl RuntimeBot {
                 "auto_escape":true,
             },
             "echo": "None" });
-        let msg = String::from(msg);
+        let msg = Message::from(msg);
         let group_id = &group_id;
-        info!("[group] [reply {group_id}]: {msg}");
+        info!("[send] [to group {group_id}]: {}", msg.to_human_string());
         self.api_tx.send((send_api, None)).unwrap();
     }
 
     ///发送私聊消息，如果需要返回消息id，请使用send_private_msg_return()
     pub fn send_private_msg<T>(&self, user_id: i64, msg: T)
     where
-        String: From<T>,
+        Message: From<T>,
         T: Serialize,
     {
         let send_api = json!({
@@ -229,9 +230,9 @@ impl RuntimeBot {
                 "auto_escape":true,
             },
             "echo": "None" });
-        let msg = String::from(msg);
+        let msg = Message::from(msg);
         let user_id = &user_id;
-        info!("[private] [reply {user_id}]: {msg}");
+        info!("[send] [to private {user_id}]: {}", msg.to_human_string());
         self.api_tx.send((send_api, None)).unwrap();
     }
 

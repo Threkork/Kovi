@@ -18,6 +18,7 @@ use std::{fs, net::IpAddr, process::exit, sync::Arc, thread};
 use websocket_lite::{ClientBuilder, Message};
 
 mod handler;
+pub mod message;
 pub mod plugin_builder;
 pub mod runtimebot;
 
@@ -162,14 +163,6 @@ impl Bot {
     }
 
     /// 向bot挂载插件，须传入Arc\<Fn\>
-    ///
-    /// # Examples
-    /// ```
-    /// let bot = bot
-    ///     .mount_main(Arc::new(online::main))
-    ///     .mount_main(Arc::new(hello::main));
-    /// bot.run()
-    /// ```
     pub fn mount_main<T>(
         &mut self,
         name: T,
@@ -308,23 +301,28 @@ impl Bot {
             "message" => {
                 let e = match OnMsgEvent::new(api_tx, msg.as_str()) {
                     Ok(event) => event,
-                    Err(_e) => {
+                    Err(e) => {
+                        error!("{e}");
                         return;
                     }
                 };
-                let text = match &e.text {
-                    Some(v) => v,
-                    None => "Kovi还未能解析打印此消息",
-                };
-                let nickname = &e.sender.nickname;
+                let text = &e.human_text;
+                let mut nickname = e.get_sender_nickname();
+                nickname.insert(0, ' ');
+                let id = &e.sender.user_id;
                 let message_type = &e.message_type;
-                info!("[{message_type}] [{nickname}]: {text}");
+                let group_id = match &e.group_id {
+                    Some(v) => format!(" {v}"),
+                    None => "".to_string(),
+                };
+                info!("[{message_type}{group_id}{nickname} {id}]: {text}");
                 Event::OnMsg(e)
             }
             "notice" => {
                 let e = match OnAllNoticeEvent::new(&msg) {
                     Ok(event) => event,
-                    Err(_e) => {
+                    Err(e) => {
+                        error!("{e}");
                         return;
                     }
                 };
@@ -455,9 +453,6 @@ impl Bot {
 
                 match receive {
                     Ok(msg_result) => {
-                        if return_api_tx.is_none() {
-                            break;
-                        }
                         if let Some(msg) = msg_result {
                             if !msg.opcode().is_text() {
                                 continue;

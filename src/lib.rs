@@ -8,6 +8,7 @@
 
 mod log;
 
+pub use bot::plugin_builder::PluginBuilder;
 pub use kovi_macros::plugin;
 
 /// Everything about bots is inside
