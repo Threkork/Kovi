@@ -138,7 +138,7 @@ impl Bot {
         };
         if env::var("RUST_LOG").is_err() {
             if config_json.debug {
-                env::set_var("RUST_LOG", "trace");
+                env::set_var("RUST_LOG", "debug");
             } else {
                 env::set_var("RUST_LOG", "info");
             }
