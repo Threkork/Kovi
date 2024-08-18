@@ -4,7 +4,7 @@
 
 A OneBot V11 bot plugin framework developed in Rust.
 
-More documentation can be found in the [Kovi Doc](https://www.threkork.me/kovi-doc/).
+More documentation can be found in the [Kovi Doc](https://threkork.github.io/kovi-doc/).
 
 The project is currently in beta.
 
@@ -161,4 +161,4 @@ The closure passed to `plugin.on_msg()` runs every time a message is received.
 
 Kovi has encapsulated all available OneBot standard APIs. To extend the API, you can use `RuntimeBot`'s `send_api()` to send APIs yourself.
 
-More documentation can be found in the [Kovi Doc](https://www.threkork.me/kovi-doc/).
+More documentation can be found in the [Kovi Doc](https://threkork.github.io/kovi-doc/).
