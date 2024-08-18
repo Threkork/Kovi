@@ -2,9 +2,8 @@ use crate::error::Error;
 use crate::log::set_log;
 use dialoguer::theme::ColorfulTheme;
 use dialoguer::Input;
-use log::{debug, error, info};
-use plugin_builder::event::{AllMsgEvent, AllNoticeEvent, Event};
-use plugin_builder::{OnType, Plugin, PluginBuilder};
+use log::{debug, error};
+use plugin_builder::{Plugin, PluginBuilder};
 use runtimebot::ApiMpsc;
 use serde::{Deserialize, Serialize};
 use serde_json::{self, json, Value};
@@ -274,124 +273,6 @@ impl Bot {
         }
     }
 
-    fn handler_msg(bot: Arc<RwLock<Self>>, msg: String, api_tx: mpsc::Sender<ApiMpsc>) {
-        let msg_json: Value = serde_json::from_str(&msg).unwrap();
-
-        debug!("{msg_json}");
-
-        if let Some(meta_event_type) = msg_json.get("meta_event_type") {
-            match meta_event_type.as_str().unwrap() {
-                // 生命周期一开始请求bot的信息
-                "lifecycle" => {
-                    handler::handle_lifecycle(bot.clone());
-                    return;
-                }
-                "heartbeat" => {
-                    return;
-                }
-                _ => {
-                    return;
-                }
-            }
-        }
-
-        let plugins = bot.read().unwrap().plugins.clone();
-
-        let event = match msg_json.get("post_type").unwrap().as_str().unwrap() {
-            "message" => {
-                let e = match AllMsgEvent::new(api_tx, msg.as_str()) {
-                    Ok(event) => event,
-                    Err(e) => {
-                        error!("{e}");
-                        return;
-                    }
-                };
-                let text = &e.human_text;
-                let mut nickname = e.get_sender_nickname();
-                nickname.insert(0, ' ');
-                let id = &e.sender.user_id;
-                let message_type = &e.message_type;
-                let group_id = match &e.group_id {
-                    Some(v) => format!(" {v}"),
-                    None => "".to_string(),
-                };
-                info!("[{message_type}{group_id}{nickname} {id}]: {text}");
-                Event::OnMsg(e)
-            }
-            "notice" => {
-                let e = match AllNoticeEvent::new(&msg) {
-                    Ok(event) => event,
-                    Err(e) => {
-                        error!("{e}");
-                        return;
-                    }
-                };
-                Event::OnAllNotice(e)
-            }
-            "request" => return,
-
-            _ => {
-                panic!()
-            }
-        };
-
-        let event = Arc::new(event);
-
-        //线程储存
-        let mut handles = vec![];
-        for plugin in plugins {
-            for listen in plugin.all_listen {
-                match listen.on_type {
-                    OnType::OnMsg => {
-                        let event = Arc::clone(&event);
-                        handles.push(thread::spawn(move || {
-                            handler::handler_on(&event, listen.handler)
-                        }));
-                    }
-                    OnType::OnAdminMsg => {
-                        let bot = bot.clone();
-
-                        if msg_json.get("message_type").is_none() {
-                            continue;
-                        };
-
-                        let user_id = msg_json
-                            .get("sender")
-                            .unwrap()
-                            .get("user_id")
-                            .unwrap()
-                            .as_i64()
-                            .unwrap();
-                        let event = Arc::clone(&event);
-                        handles.push(thread::spawn({
-                            move || {
-                                let admin_vec = {
-                                    let bot = bot.read().unwrap();
-                                    let mut admin_vec = bot.information.admin.clone();
-                                    admin_vec.push(bot.information.main_admin);
-                                    admin_vec
-                                };
-                                if admin_vec.contains(&user_id) {
-                                    handler::handler_on(&event, listen.handler)
-                                }
-                            }
-                        }));
-                    }
-                    OnType::OnAllNotice => {
-                        let event = Arc::clone(&event);
-
-                        handles.push(thread::spawn(move || {
-                            handler::handler_on(&event, listen.handler)
-                        }));
-                    }
-                }
-            }
-        }
-
-        for handle in handles {
-            handle.join().unwrap();
-        }
-    }
 
     fn ws_connect(host: IpAddr, port: u16, access_token: String, tx: mpsc::Sender<String>) {
         let url = format!("ws://{}:{}/event", host, port);

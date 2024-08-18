@@ -17,3 +17,10 @@ pub enum ApiError {
     #[error("Error, and no one knows why something went wrong")]
     UnknownError(),
 }
+
+
+#[derive(Error, Debug)]
+pub enum PluginBuilderError {
+    #[error("The information of the plugin is not set correctly")]
+    InfoError(),
+}
