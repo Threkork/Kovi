@@ -273,6 +273,10 @@ impl Message {
         Message::CQString(s)
     }
 
+    /// 传入字符串，返回 CQString
+    pub fn from_str(s: &str) -> Message {
+        Message::CQString(s.to_string())
+    }
 
     /// 会返回 Array ，但是不保证 Value 格式是否正确，需要自行检查
     pub fn from_array(arr: Vec<Value>) -> Message {

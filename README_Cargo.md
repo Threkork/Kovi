@@ -14,12 +14,6 @@ More features will be added in future updates.
 
 **Note⚠️: The project currently only supports the OneBot V11 forward WebSocket protocol.**
 
-## Why choose Kovi?
-
-- 🚲 Lightweight: Low resource usage. So far, when compiled under Linux, the library size is less than 2MB.
-- ⚡ Efficient: Because it's lightweight, it's also fast.
-- 🚤 Rapid Development: Developers don't need to worry about the underlying details; the framework handles everything for you.
-
 The original intent behind this project is to enhance group activity, facilitate group management, and is intended for personal entertainment, learning, and communication purposes only. **No one is allowed to use this project for any illegal activities.**
 
 ## Why is it called Kovi?

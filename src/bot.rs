@@ -1,5 +1,4 @@
 use crate::error::Error;
-use crate::log::set_log;
 use dialoguer::theme::ColorfulTheme;
 use dialoguer::Input;
 use log::{debug, error};
@@ -142,7 +141,7 @@ impl Bot {
                 env::set_var("RUST_LOG", "info");
             }
         }
-        set_log();
+
 
         Bot {
             information: BotInformation {

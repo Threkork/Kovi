@@ -1,7 +1,6 @@
 use super::ApiMpsc;
 use super::{runtimebot::RuntimeBot, Bot};
 use event::{AllMsgEvent, AllNoticeEvent, AllRequestEvent, Event};
-use log::error;
 use std::sync::{Arc, RwLock};
 use std::{net::IpAddr, sync::mpsc};
 
@@ -99,7 +98,6 @@ impl PluginBuilder {
                     if let Event::OnMsg(e) = event {
                         handler(e)
                     } else {
-                        error!("{:?}", event);
                         panic!()
                     }
                 }),
@@ -166,8 +164,8 @@ impl PluginBuilder {
 
     /// 注册消息处理函数。
     ///
-    /// 注册一个处理程序（handler），用于处理接收到的消息事件（`AllNoticeEvent`）。
-    /// 接收闭包，要求函数接受 `AllNoticeEvent` 类型的参数，并返回 `Result` 类型。
+    /// 注册一个处理程序（handler），用于处理接收到的消息事件（`AllRequestEvent`）。
+    /// 接收闭包，要求函数接受 `AllRequestEvent` 类型的参数，并返回 `Result` 类型。
     /// 闭包必须实现 `Send` 、 `Sync`和 `'static`，因为要保证多线程安全以及在确保闭包在整个程序生命周期有效。
     pub fn on_all_request<F>(&mut self, handler: F)
     where

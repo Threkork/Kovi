@@ -1,9 +1,10 @@
-use anstyle::{Color, Style};
-use chrono::Local;
-use log::Level;
-use std::io::Write;
+#[cfg(feature = "logger")]
+pub fn set_logger() {
+    use anstyle::{Color, Style};
+    use chrono::Local;
+    use log::Level;
+    use std::io::Write;
 
-pub fn set_log() {
     env_logger::Builder::from_default_env()
         .format(|buf, record| {
             /* let green = Style::new().fg_color(Some(Color::Rgb((85, 170, 127).into()))); */

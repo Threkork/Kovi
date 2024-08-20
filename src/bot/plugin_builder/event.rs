@@ -80,7 +80,7 @@ pub struct AllRequestEvent {
     pub self_id: i64,
     /// 上报类型
     pub post_type: String,
-    /// 通知类型
+    /// 请求类型
     pub request_type: String,
 
     /// 原始的onebot消息，已处理成json格式

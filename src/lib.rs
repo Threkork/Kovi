@@ -7,8 +7,8 @@
 //!
 //! 中文文档或更多文档请查看[Github-Kovi](https://github.com/Threkork/Kovi) 和 [Kovi-doc](https://threkork.github.io/kovi-doc/)
 
-
-mod log;
+#[cfg(feature = "logger")]
+pub mod log;
 
 pub use bot::message::Message;
 pub use bot::plugin_builder::PluginBuilder;
