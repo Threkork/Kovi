@@ -1,17 +1,12 @@
+use super::{Anonymous, Sender};
+use crate::{
+    bot::{plugin_builder::event::Sex, runtimebot::ApiMpsc, SendApi},
+    Message,
+};
 use log::{debug, info};
 use serde::Serialize;
 use serde_json::{self, json, Value};
 use std::sync::mpsc;
-
-use crate::{
-    bot::{
-        plugin_builder::event::{Anonymous, Sex},
-        runtimebot::ApiMpsc,
-    },
-    Message,
-};
-
-use super::Sender;
 
 #[derive(Debug, Clone)]
 pub struct AllMsgEvent {
@@ -179,30 +174,32 @@ impl AllMsgEvent {
 }
 
 impl AllMsgEvent {
-    fn reply_builder<T>(&self, msg: T, auto_escape: bool) -> Value
+    fn reply_builder<T>(&self, msg: T, auto_escape: bool) -> SendApi
     where
         T: Serialize,
     {
         if self.message_type == "private" {
-            json!({
-            "action": "send_msg",
-            "params": {
-                "message_type":"private",
+            SendApi::new(
+                "send_msg",
+                json!({
+                    "message_type":"private",
                 "user_id":self.user_id,
                 "message":msg,
                 "auto_escape":auto_escape,
-            },
-            "echo": "None" })
+                }),
+                "None",
+            )
         } else {
-            json!({
-            "action": "send_msg",
-            "params": {
-                "message_type":"group",
-                "group_id":self.group_id.unwrap(),
-                "message":msg,
-                "auto_escape":auto_escape,
-            },
-            "echo": "None" })
+            SendApi::new(
+                "send_msg",
+                json!({
+                    "message_type":"group",
+                    "group_id":self.group_id.unwrap(),
+                    "message":msg,
+                    "auto_escape":auto_escape,
+                }),
+                "None",
+            )
         }
     }
 

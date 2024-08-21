@@ -1,19 +1,29 @@
 use crate::error::Error;
 use dialoguer::theme::ColorfulTheme;
 use dialoguer::Input;
+use futures_util::lock::Mutex;
+use futures_util::{SinkExt, StreamExt};
 use log::{debug, error};
 use plugin_builder::{Plugin, PluginBuilder};
+use reqwest::header::HeaderValue;
 use runtimebot::ApiMpsc;
 use serde::{Deserialize, Serialize};
 use serde_json::{self, json, Value};
-use std::cell::RefCell;
+use std::collections::HashMap;
 use std::env;
+use std::future::Future;
 use std::net::Ipv4Addr;
-use std::rc::Rc;
-use std::sync::mpsc::{self};
+use std::pin::Pin;
+use std::sync::mpsc::{self, Sender};
 use std::sync::RwLock;
 use std::{fs, net::IpAddr, process::exit, sync::Arc, thread};
-use websocket_lite::{ClientBuilder, Message};
+use tokio::runtime::Runtime;
+use tokio_tungstenite::connect_async;
+use tokio_tungstenite::tungstenite::client::IntoClientRequest;
+use tokio_tungstenite::tungstenite::Message;
+
+#[cfg(feature = "logger")]
+use crate::log::set_logger;
 
 mod handler;
 pub mod message;
@@ -87,10 +97,25 @@ pub struct Bot {
 }
 
 #[derive(Clone)]
-pub struct BotMain {
+pub enum BotMain {
+    BotSyncMain(BotSyncMain),
+    BotAsyncMain(BotAsyncMain),
+}
+
+#[derive(Clone)]
+pub struct BotSyncMain {
     pub name: String,
     pub version: String,
     pub main: Arc<dyn Fn(PluginBuilder) + Send + Sync + 'static>,
+}
+
+#[derive(Clone)]
+pub struct BotAsyncMain {
+    pub name: String,
+    pub version: String,
+    pub main: Arc<
+        dyn Fn(PluginBuilder) -> Pin<Box<dyn Future<Output = ()> + Send>> + Send + Sync + 'static,
+    >,
 }
 
 /// bot信息结构体
@@ -142,6 +167,9 @@ impl Bot {
             }
         }
 
+        #[cfg(feature = "logger")]
+        set_logger();
+
 
         Bot {
             information: BotInformation {
@@ -171,12 +199,35 @@ impl Bot {
     {
         let name = String::from(name);
         let version = String::from(version);
-        let bot_main = BotMain {
+        let bot_main = BotSyncMain {
             name,
             version,
             main,
         };
-        self.main.push(bot_main)
+        self.main.push(BotMain::BotSyncMain(bot_main))
+    }
+
+    pub fn mount_async_main<T>(
+        &mut self,
+        name: T,
+        version: T,
+        main: Arc<
+            dyn Fn(PluginBuilder) -> Pin<Box<dyn Future<Output = ()> + Send>>
+                + Send
+                + Sync
+                + 'static,
+        >,
+    ) where
+        String: From<T>,
+    {
+        let name = String::from(name);
+        let version = String::from(version);
+        let bot_main = BotAsyncMain {
+            name,
+            version,
+            main,
+        };
+        self.main.push(BotMain::BotAsyncMain(bot_main))
     }
 }
 
@@ -191,6 +242,31 @@ enum LifeStatus {
     Running,
 }
 
+type ApiTxMap = Arc<Mutex<HashMap<String, Sender<Result<Value, Error>>>>>;
+
+#[derive(Debug, Serialize, Clone)]
+pub struct SendApi {
+    pub action: String,
+    pub params: Value,
+    pub echo: String,
+}
+
+impl std::fmt::Display for SendApi {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", serde_json::to_string(self).unwrap())
+    }
+}
+
+impl SendApi {
+    pub fn new(action: &str, params: Value, echo: &str) -> Self {
+        SendApi {
+            action: action.to_string(),
+            params,
+            echo: echo.to_string(),
+        }
+    }
+}
+
 impl Bot {
     /// 运行bot
     /// **注意此函数会阻塞**
@@ -203,44 +279,49 @@ impl Bot {
 
         let bot = Arc::new(RwLock::new(self));
 
-        //处理连接，从msg_tx返回消息
-        let (msg_tx, msg_rx): (mpsc::Sender<String>, mpsc::Receiver<String>) = mpsc::channel();
+        let rt = Runtime::new().unwrap();
 
-        let msg_tx_clone = msg_tx.clone();
-        let access_token_clone = access_token.clone();
-        let connect_task = thread::spawn(move || {
-            Self::ws_connect(host, port, access_token_clone, msg_tx_clone);
-        });
+        rt.block_on(async {
+            //处理连接，从msg_tx返回消息
+            let (msg_tx, msg_rx): (mpsc::Sender<String>, mpsc::Receiver<String>) = mpsc::channel();
 
-        // 接收插件的api
-        let (api_tx, api_rx): (mpsc::Sender<ApiMpsc>, mpsc::Receiver<ApiMpsc>) = mpsc::channel();
-
-        let access_token_clone = access_token.clone();
-        let send_api_task = thread::spawn(move || {
-            Self::ws_send_api(host, port, access_token_clone, api_rx);
-        });
-
-
-        let main_task_bot = bot.clone();
-        let api_tx_clone = api_tx.clone();
-        let handler_main_task =
-            thread::spawn(move || Self::plugin_main(main_task_bot, api_tx_clone));
-
-        //处理消息，每个消息事件都会来到这里
-        for msg in msg_rx {
-            let api_tx_clone = api_tx.clone();
-            let bot = bot.clone();
-            thread::spawn(move || {
-                Self::handler_msg(bot, msg, api_tx_clone);
+            let msg_tx_clone = msg_tx.clone();
+            let access_token_clone = access_token.clone();
+            let connect_task = tokio::spawn(async move {
+                Self::ws_connect(host, port, access_token_clone, msg_tx_clone).await;
             });
-        }
 
-        handler_main_task.join().unwrap();
-        connect_task.join().unwrap();
-        send_api_task.join().unwrap();
+            // 接收插件的api
+            let (api_tx, api_rx): (mpsc::Sender<ApiMpsc>, mpsc::Receiver<ApiMpsc>) =
+                mpsc::channel();
+
+            let access_token_clone = access_token.clone();
+            let send_api_task = tokio::spawn(async move {
+                Self::ws_send_api(host, port, access_token_clone, api_rx).await;
+            });
+
+            // 运行所有的main
+            let main_task_bot = bot.clone();
+            let api_tx_clone = api_tx.clone();
+            let handler_main_task =
+                tokio::spawn(async move { Self::plugin_main(main_task_bot, api_tx_clone).await });
+
+            //处理消息，每个消息事件都会来到这里
+            for msg in msg_rx {
+                let api_tx_clone = api_tx.clone();
+                let bot = bot.clone();
+                thread::spawn(move || {
+                    Self::handler_msg(bot, msg, api_tx_clone);
+                });
+            }
+
+            handler_main_task.await.unwrap();
+            connect_task.await.unwrap();
+            send_api_task.await.unwrap();
+        });
     }
 
-    fn plugin_main(bot: Arc<RwLock<Self>>, api_tx: mpsc::Sender<ApiMpsc>) {
+    async fn plugin_main(bot: Arc<RwLock<Self>>, api_tx: mpsc::Sender<ApiMpsc>) {
         // 运行所有main()
         let bot_main_job_clone = bot.clone();
         let api_tx_main_job_clone = api_tx.clone();
@@ -258,101 +339,134 @@ impl Bot {
             let main_job = main_job_vec.pop().unwrap();
             let bot_main_job_clone = bot_main_job_clone.clone();
             let api_tx = api_tx_main_job_clone.clone();
-            handler_main_job.push(thread::spawn(move || {
-                //plugin创建
-                let plugin_builder =
-                    PluginBuilder::new(main_job.name.clone(), bot_main_job_clone.clone(), api_tx);
-                //多线程运行main()
-                (main_job.main)(plugin_builder);
+            handler_main_job.push(tokio::spawn(async move {
+                match &main_job {
+                    BotMain::BotSyncMain(sync_main) => {
+                        let plugin_builder = PluginBuilder::new(
+                            sync_main.name.clone(),
+                            bot_main_job_clone.clone(),
+                            api_tx,
+                        );
+                        // 多线程运行 main()
+                        (sync_main.main)(plugin_builder);
+                    }
+                    BotMain::BotAsyncMain(async_main) => {
+                        let plugin_builder = PluginBuilder::new(
+                            async_main.name.clone(),
+                            bot_main_job_clone.clone(),
+                            api_tx,
+                        );
+                        // 异步运行 main()
+                        (async_main.main)(plugin_builder).await;
+                    }
+                }
             }));
         }
         //等待所有main()结束
         for handler in handler_main_job {
-            handler.join().unwrap();
+            handler.await.unwrap();
         }
     }
 
 
-    fn ws_connect(host: IpAddr, port: u16, access_token: String, tx: mpsc::Sender<String>) {
-        let url = format!("ws://{}:{}/event", host, port);
-        let mut client = ClientBuilder::new(&url).unwrap();
-        client.add_header(
-            "Authorization".to_string(),
-            format!("Bearer {}", access_token),
-        );
-        let mut ws = match client.connect_insecure() {
+    async fn ws_connect(host: IpAddr, port: u16, access_token: String, tx: mpsc::Sender<String>) {
+        //增加Authorization头
+        let mut request = format!("ws://{}:{}/event", host, port)
+            .into_client_request()
+            .unwrap();
+
+        if access_token != "" {
+            request.headers_mut().insert(
+                "Authorization",
+                HeaderValue::from_str(&format!("Bearer {}", access_token)).unwrap(),
+            );
+        }
+
+        let (ws_stream, _) = match connect_async(request).await {
             Ok(v) => v,
             Err(e) => exit_and_eprintln(e),
         };
-        loop {
-            match ws.receive() {
-                Ok(msg_result) => match msg_result {
-                    Some(msg) => {
-                        if !msg.opcode().is_text() {
-                            continue;
-                        }
 
-                        let text = msg.as_text().unwrap();
-                        tx.send(text.to_string()).unwrap();
+        let (_, read) = ws_stream.split();
+        read.for_each(|msg| async {
+            match msg {
+                Ok(msg) => {
+                    if !msg.is_text() {
+                        return;
                     }
-                    None => {
-                        continue;
-                    }
-                },
+
+                    let text = msg.to_text().unwrap();
+                    tx.send(text.to_string()).unwrap();
+                }
                 Err(e) => exit_and_eprintln(e),
             }
-        }
+        })
+        .await;
     }
-    fn ws_send_api(host: IpAddr, port: u16, access_token: String, rx: mpsc::Receiver<ApiMpsc>) {
-        let url = format!("ws://{}:{}/api", host, port);
-        let mut client = ClientBuilder::new(&url).unwrap();
-        client.add_header(
-            "Authorization".to_string(),
-            format!("Bearer {}", access_token),
-        );
-        let ws = match client.connect_insecure() {
+
+    async fn ws_send_api(
+        host: IpAddr,
+        port: u16,
+        access_token: String,
+        rx: mpsc::Receiver<ApiMpsc>,
+    ) {
+        //增加Authorization头
+        let mut request = format!("ws://{}:{}/api", host, port)
+            .into_client_request()
+            .unwrap();
+
+        if access_token != "" {
+            request.headers_mut().insert(
+                "Authorization",
+                HeaderValue::from_str(&format!("Bearer {}", access_token)).unwrap(),
+            );
+        }
+
+
+        let (ws_stream, _) = match connect_async(request).await {
             Ok(v) => v,
             Err(e) => exit_and_eprintln(e),
         };
-        let arc_ws = Rc::new(RefCell::new(ws));
 
-        for (api_msg, return_api_tx) in rx {
-            debug!("{}", api_msg);
+        let (write, read) = ws_stream.split();
+        let write = Arc::new(Mutex::new(write));
 
-            let rc_ws_send = arc_ws.clone();
+        let api_tx_map: ApiTxMap = Arc::new(Mutex::new(HashMap::new()));
 
-            let msg = Message::text(api_msg.to_string());
-
-            {
-                let mut ws = rc_ws_send.borrow_mut();
-                ws.send(msg).unwrap();
-            }
-            loop {
-                let mut ws = rc_ws_send.borrow_mut();
-                let receive = ws.receive();
-
-                match receive {
-                    Ok(msg_result) => {
-                        if let Some(msg) = msg_result {
-                            if !msg.opcode().is_text() {
-                                continue;
+        //读
+        tokio::spawn({
+            let api_tx_map = Arc::clone(&api_tx_map);
+            async move {
+                read.for_each(|msg| async {
+                    match msg {
+                        Ok(msg) => {
+                            if msg.is_close() {
+                                error!("{msg}\nBot connection failed");
+                                exit(1);
                             }
-                            drop(ws);
-                            let text = msg.as_text().unwrap();
+                            if !msg.is_text() {
+                                return;
+                            }
+
+                            let text = msg.to_text().unwrap();
                             let return_value: Value = serde_json::from_str(text).unwrap();
 
-                            if return_value.get("status").unwrap().as_str().unwrap() != "ok" {
+                            let status = return_value.get("status").unwrap().as_str().unwrap();
+                            let echo = return_value.get("echo").unwrap().as_str().unwrap();
+
+                            if status != "ok" {
                                 error!("Api return error: {text}")
                             }
-
                             debug!("{}", text);
 
-                            let api_tx = match return_api_tx {
-                                Some(v) => v,
-                                None => break,
-                            };
+                            if echo == "None" {
+                                return;
+                            }
 
-                            let status = return_value.get("status").unwrap().as_str().unwrap();
+
+                            let mut api_tx_map = api_tx_map.lock().await;
+
+                            let api_tx = api_tx_map.remove(echo).unwrap();
                             if status == "ok" {
                                 api_tx
                                     .send(Ok(return_value.get("data").unwrap().clone()))
@@ -361,14 +475,40 @@ impl Bot {
                                 api_tx.send(Err(Error::UnknownError())).unwrap();
                             }
                         }
+                        Err(e) => exit_and_eprintln(e),
                     }
-                    Err(e) => exit_and_eprintln(e),
-                }
-                break;
+                })
+                .await;
             }
-        }
+        });
+
+
+        //写
+        tokio::spawn({
+            let write = Arc::clone(&write);
+            let api_tx_map = Arc::clone(&api_tx_map);
+            async move {
+                for (api_msg, return_api_tx) in rx {
+                    debug!("{}", api_msg);
+
+                    if api_msg.echo.as_str() != "None" {
+                        api_tx_map
+                            .lock()
+                            .await
+                            .insert(api_msg.echo.clone(), return_api_tx.unwrap());
+                    }
+
+                    let msg = Message::text(api_msg.to_string());
+                    let mut write_lock = write.lock().await;
+                    if let Err(e) = write_lock.send(msg).await {
+                        exit_and_eprintln(e);
+                    }
+                }
+            }
+        });
     }
 }
+
 
 fn exit_and_eprintln<E>(e: E) -> !
 where
@@ -380,13 +520,71 @@ where
 
 #[macro_export]
 macro_rules! build_bot {
-    ($($plugin:ident),*) => {{
-        let mut bot = kovi::bot::Bot::build();
-        $(
-            let (crate_name, crate_version) = $plugin::__kovi__get_crate_name();
-            println!("Mounting plugin: {}", crate_name);
-            bot.mount_main(crate_name, crate_version, std::sync::Arc::new($plugin::main));
-        )*
-        bot
-    }};
+    ( $( $sync_plugin:ident ),* $(,)* ) => {
+        {
+            let mut bot = kovi::bot::Bot::build();
+
+            $(
+                let (crate_name, crate_version) = $sync_plugin::__kovi__get_plugin_info();
+                println!("Mounting plugin: {}", crate_name);
+                bot.mount_main(crate_name, crate_version, std::sync::Arc::new($sync_plugin::main));
+            )*
+
+            bot
+        }
+    };
+
+    ( $(async $async_plugin:ident),* $(,)* ) => {
+        {
+            let mut bot = kovi::bot::Bot::build();
+
+            $(
+                let (crate_name, crate_version) = $async_plugin::__kovi__get_plugin_info();
+                println!("Mounting async plugin: {}", crate_name);
+                bot.mount_async_main(crate_name, crate_version, std::sync::Arc::new($async_plugin::__kovi__run_async_plugin));
+            )*
+
+            bot
+        }
+    };
+
+    ( $(async $async_plugin:ident),* & $( $sync_plugin:ident ),* $(,)* ) => {
+        {
+            let mut bot = kovi::bot::Bot::build();
+
+            $(
+                let (crate_name, crate_version) = $async_plugin::__kovi__get_plugin_info();
+                println!("Mounting async plugin: {}", crate_name);
+                bot.mount_async_main(crate_name, crate_version, std::sync::Arc::new($async_plugin::__kovi__run_async_plugin));
+            )*
+
+            $(
+                let (crate_name, crate_version) = $sync_plugin::__kovi__get_plugin_info();
+                println!("Mounting plugin: {}", crate_name);
+                bot.mount_main(crate_name, crate_version, std::sync::Arc::new($sync_plugin::main));
+            )*
+
+            bot
+        }
+    };
+
+    ( $( $sync_plugin:ident ),* & $(async $async_plugin:ident),* $(,)* ) => {
+        {
+            let mut bot = kovi::bot::Bot::build();
+
+            $(
+                let (crate_name, crate_version) = $sync_plugin::__kovi__get_plugin_info();
+                println!("Mounting plugin: {}", crate_name);
+                bot.mount_main(crate_name, crate_version, std::sync::Arc::new($sync_plugin::main));
+            )*
+
+            $(
+                let (crate_name, crate_version) = $async_plugin::__kovi__get_plugin_info();
+                println!("Mounting async plugin: {}", crate_name);
+                bot.mount_async_main(crate_name, crate_version, std::sync::Arc::new($async_plugin::__kovi__run_async_plugin));
+            )*
+
+            bot
+        }
+    };
 }

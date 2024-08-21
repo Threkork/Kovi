@@ -1,11 +1,11 @@
+use super::SendApi;
+use crate::error::Error;
 use serde_json::Value;
 use std::{net::IpAddr, sync::mpsc};
 
-use crate::error::Error;
-
 pub mod api;
 
-pub type ApiMpsc = (Value, Option<mpsc::Sender<Result<Value, Error>>>);
+pub type ApiMpsc = (SendApi, Option<mpsc::Sender<Result<Value, Error>>>);
 
 /// 运行时的Bot，可以用来发送api，需要从PluginBuilder的.build_runtime_bot()构建。
 /// # Examples

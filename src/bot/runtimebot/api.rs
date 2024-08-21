@@ -1,12 +1,13 @@
 use super::RuntimeBot;
 use crate::{
-    bot::message::Message,
+    bot::{message::Message, SendApi},
     error::{ApiError, Error},
 };
 use log::info;
 use serde::Serialize;
 use serde_json::{json, Value};
 use std::sync::mpsc;
+use tokio_tungstenite::tungstenite::handshake::client::generate_key;
 
 pub enum HonorType {
     All,
@@ -17,6 +18,7 @@ pub enum HonorType {
     Emotion,
 }
 
+
 /// Kovi提供解析过的返回值的api
 impl RuntimeBot {
     ///发送群组消息, 并返回消息ID
@@ -25,15 +27,17 @@ impl RuntimeBot {
         Message: From<T>,
         T: Serialize,
     {
-        let send_api = json!({
-            "action": "send_msg",
-            "params": {
+        let send_api = SendApi::new(
+            "send_msg",
+            json!({
                 "message_type":"group",
                 "group_id":group_id,
                 "message":msg,
                 "auto_escape":true,
-            },
-            "echo": "Some" });
+            }),
+            &generate_key(),
+        );
+
         let msg = Message::from(msg);
         let group_id = &group_id;
         info!("[send] [to group {group_id}]: {}", msg.to_human_string());
@@ -51,15 +55,15 @@ impl RuntimeBot {
         Message: From<T>,
         T: Serialize,
     {
-        let send_api = json!({
-            "action": "send_msg",
-            "params": {
-                "message_type":"private",
+        let send_api = SendApi::new(
+            "send_msg",
+            json!({"message_type":"private",
                 "user_id":user_id,
                 "message":msg,
-                "auto_escape":true,
-            },
-            "echo": "Some" });
+                "auto_escape":true,}),
+            &generate_key(),
+        );
+
         let msg = Message::from(msg);
         let user_id = &user_id;
         info!("[send] [to private {user_id}]: {}", msg.to_human_string());
@@ -72,10 +76,8 @@ impl RuntimeBot {
     }
     /// 是否能发送图片
     pub fn can_send_image(&self) -> Result<bool, ApiError> {
-        let send_api = json!({
-            "action": "can_send_image",
-            "params": {},
-            "echo": "Some" });
+        let send_api = SendApi::new("can_send_image", json!({}), &generate_key());
+
         let api_rx = self.mpsc_and_send(send_api);
         match api_rx.recv().unwrap() {
             Ok(v) => Ok(v.get("yes").unwrap().as_bool().unwrap()),
@@ -85,10 +87,7 @@ impl RuntimeBot {
     }
     /// 是否能发送语音
     pub fn can_send_record(&self) -> Result<bool, ApiError> {
-        let send_api = json!({
-            "action": "can_send_record",
-            "params": {},
-            "echo": "Some" });
+        let send_api = SendApi::new("can_send_record", json!({}), &generate_key());
         let api_rx = self.mpsc_and_send(send_api);
         match api_rx.recv().unwrap() {
             Ok(v) => Ok(v.get("yes").unwrap().as_bool().unwrap()),
@@ -102,12 +101,13 @@ impl RuntimeBot {
     ///
     /// `domain`: 需要获取 cookies 的域名
     pub fn get_cookies(&self, domain: &str) -> Result<String, ApiError> {
-        let send_api = json!({
-            "action": "get_cookies",
-            "params": {
+        let send_api = SendApi::new(
+            "get_cookies",
+            json!({
                 "domain":domain,
-            },
-            "echo": "Some" });
+            }),
+            &generate_key(),
+        );
         let api_rx = self.mpsc_and_send(send_api);
         match api_rx.recv().unwrap() {
             Ok(v) => Ok(v.get("cookies").unwrap().to_string()),
@@ -120,10 +120,8 @@ impl RuntimeBot {
     }
     /// 获取 CSRF Token
     pub fn get_csrf_token(&self) -> Result<i32, ApiError> {
-        let send_api = json!({
-            "action": "get_csrf_token",
-            "params": {},
-            "echo": "Some" });
+        let send_api = SendApi::new("get_csrf_token", json!({}), &generate_key());
+
         let api_rx = self.mpsc_and_send(send_api);
         match api_rx.recv().unwrap() {
             Ok(v) => Ok(v.get("token").unwrap().as_i64().unwrap() as i32),
@@ -139,13 +137,14 @@ impl RuntimeBot {
     ///
     /// `out_format`: 要转换到的格式，目前支持 `mp3`、`amr`、`wma`、`m4a`、`spx`、`ogg`、`wav`、`flac`
     pub fn get_record(&self, file: &str, out_format: &str) -> Result<String, ApiError> {
-        let send_api = json!({
-            "action": "get_record",
-            "params": {
+        let send_api = SendApi::new(
+            "get_record",
+            json!({
                 "file":file,
-                "out_format":out_format
-            },
-            "echo": "Some" });
+                    "out_format":out_format
+            }),
+            &generate_key(),
+        );
         let api_rx = self.mpsc_and_send(send_api);
         match api_rx.recv().unwrap() {
             Ok(v) => match v.get("file") {
@@ -168,12 +167,13 @@ impl RuntimeBot {
     ///
     /// `file`: 收到的图片文件名（消息段的 file 参数），如 `6B4DE3DFD1BD271E3297859D41C530F5.jpg`
     pub fn get_image(&self, file: &str) -> Result<String, ApiError> {
-        let send_api = json!({
-            "action": "get_image",
-            "params": {
+        let send_api = SendApi::new(
+            "get_image",
+            json!({
                 "file":file,
-            },
-            "echo": "Some" });
+            }),
+            &generate_key(),
+        );
         let api_rx = self.mpsc_and_send(send_api);
         match api_rx.recv().unwrap() {
             Ok(v) => match v.get("file") {
@@ -200,15 +200,16 @@ impl RuntimeBot {
         Message: From<T>,
         T: Serialize,
     {
-        let send_api = json!({
-            "action": "send_msg",
-            "params": {
-                "message_type":"group",
-                "group_id":group_id,
-                "message":msg,
-                "auto_escape":true,
-            },
-            "echo": "None" });
+        let send_api = SendApi::new(
+            "send_msg",
+            json!({
+                 "message_type":"group",
+                    "group_id":group_id,
+                    "message":msg,
+                    "auto_escape":true,
+            }),
+            "None",
+        );
         let msg = Message::from(msg);
         let group_id = &group_id;
         info!("[send] [to group {group_id}]: {}", msg.to_human_string());
@@ -221,15 +222,17 @@ impl RuntimeBot {
         Message: From<T>,
         T: Serialize,
     {
-        let send_api = json!({
-            "action": "send_msg",
-            "params": {
+        let send_api = SendApi::new(
+            "send_msg",
+            json!({
                 "message_type":"private",
-                "user_id":user_id,
-                "message":msg,
-                "auto_escape":true,
-            },
-            "echo": "None" });
+                    "user_id":user_id,
+                    "message":msg,
+                    "auto_escape":true,
+            }),
+            "None",
+        );
+
         let msg = Message::from(msg);
         let user_id = &user_id;
         info!("[send] [to private {user_id}]: {}", msg.to_human_string());
@@ -242,12 +245,13 @@ impl RuntimeBot {
     ///
     /// `message_id`: 消息 ID
     pub fn delete_msg(&self, message_id: i32) {
-        let send_api = json!({
-            "action": "delete_msg",
-            "params": {
+        let send_api = SendApi::new(
+            "delete_msg",
+            json!({
                 "message_id":message_id,
-            },
-            "echo": "None" });
+            }),
+            "None",
+        );
 
         self.api_tx.send((send_api, None)).unwrap();
     }
@@ -259,13 +263,14 @@ impl RuntimeBot {
     ///
     /// `times`: 次数
     pub fn send_like(&self, user_id: i64, times: usize) {
-        let send_api = json!({
-            "action": "send_like",
-            "params": {
-                "user_id":user_id,
-                "times":times,
-            },
-            "echo": "None" });
+        let send_api = SendApi::new(
+            "send_like",
+            json!({
+                                "user_id":user_id,
+                    "times":times,
+            }),
+            "None",
+        );
 
         self.api_tx.send((send_api, None)).unwrap();
     }
@@ -279,14 +284,15 @@ impl RuntimeBot {
     ///
     /// `reject_add_request`: 是否拒绝此人的加群请求，传入true则拒绝
     pub fn set_group_kick(&self, group_id: i64, user_id: i64, reject_add_request: bool) {
-        let send_api = json!({
-            "action": "set_group_kick",
-            "params": {
+        let send_api = SendApi::new(
+            "set_group_kick",
+            json!({
                 "group_id":group_id,
-                "user_id":user_id,
-                "reject_add_request":reject_add_request,
-            },
-            "echo": "None" });
+                    "user_id":user_id,
+                    "reject_add_request":reject_add_request,
+            }),
+            "None",
+        );
 
         self.api_tx.send((send_api, None)).unwrap();
     }
@@ -301,14 +307,15 @@ impl RuntimeBot {
     ///
     /// `duration`: 禁言时长，单位秒，0 表示取消禁言
     pub fn set_group_ban(&self, group_id: i64, user_id: i64, duration: usize) {
-        let send_api = json!({
-            "action": "set_group_ban",
-            "params": {
+        let send_api = SendApi::new(
+            "set_group_ban",
+            json!({
                 "group_id":group_id,
-                "user_id":user_id,
-                "duration":duration,
-            },
-            "echo": "None" });
+                    "user_id":user_id,
+                    "duration":duration,
+            }),
+            "None",
+        );
 
         self.api_tx.send((send_api, None)).unwrap();
     }
@@ -327,14 +334,16 @@ impl RuntimeBot {
         anonymous: Value,
         duration: usize,
     ) {
-        let send_api = json!({
-            "action": "set_group_anonymous_ban",
-            "params": {
+        let send_api = SendApi::new(
+            "set_group_anonymous_ban",
+            json!({
                 "group_id":group_id,
-                "anonymous":anonymous,
-                "duration":duration,
-            },
-            "echo": "None" });
+                    "anonymous":anonymous,
+                    "duration":duration,
+            }),
+            "None",
+        );
+
 
         self.api_tx.send((send_api, None)).unwrap();
     }
@@ -348,14 +357,16 @@ impl RuntimeBot {
     ///
     /// `enable`: 是否禁言
     pub fn set_group_anonymous_ban_use_flag(&self, group_id: i64, flag: &str, duration: usize) {
-        let send_api = json!({
-            "action": "set_group_anonymous_ban",
-            "params": {
+        let send_api = SendApi::new(
+            "set_group_anonymous_ban",
+            json!({
                 "group_id":group_id,
-                "flag":flag,
-                "duration":duration,
-            },
-            "echo": "None" });
+                    "flag":flag,
+                    "duration":duration,
+            }),
+            "None",
+        );
+
 
         self.api_tx.send((send_api, None)).unwrap();
     }
@@ -368,13 +379,15 @@ impl RuntimeBot {
     ///
     /// `enable`: 是否禁言
     pub fn set_group_whole_ban(&self, group_id: i64, enable: bool) {
-        let send_api = json!({
-            "action": "set_group_whole_ban",
-            "params": {
+        let send_api = SendApi::new(
+            "set_group_whole_ban",
+            json!({
                 "group_id":group_id,
-                "enable":enable,
-            },
-            "echo": "None" });
+                    "enable":enable,
+            }),
+            "None",
+        );
+
 
         self.api_tx.send((send_api, None)).unwrap();
     }
@@ -389,14 +402,15 @@ impl RuntimeBot {
     ///
     /// `enable`: true 为设置，false 为取消
     pub fn set_group_admin(&self, group_id: i64, user_id: i64, enable: bool) {
-        let send_api = json!({
-            "action": "set_group_admin",
-            "params": {
+        let send_api = SendApi::new(
+            "set_group_admin",
+            json!({
                 "group_id":group_id,
-                "user_id":user_id,
-                "enable":enable,
-            },
-            "echo": "None" });
+                    "user_id":user_id,
+                    "enable":enable,
+            }),
+            "None",
+        );
 
         self.api_tx.send((send_api, None)).unwrap();
     }
@@ -408,13 +422,15 @@ impl RuntimeBot {
     ///
     /// `enable`: true 为设置，false 为取消
     pub fn set_group_anonymous(&self, group_id: i64, enable: bool) {
-        let send_api = json!({
-            "action": "set_group_anonymous",
-            "params": {
+        let send_api = SendApi::new(
+            "set_group_anonymous",
+            json!({
                 "group_id":group_id,
-                "enable":enable,
-            },
-            "echo": "None" });
+                    "enable":enable,
+            }),
+            "None",
+        );
+
 
         self.api_tx.send((send_api, None)).unwrap();
     }
@@ -429,14 +445,16 @@ impl RuntimeBot {
     ///
     /// `card`: 群名片内容，不填或空字符串表示删除群名片
     pub fn set_group_card(&self, group_id: i64, user_id: i64, card: &str) {
-        let send_api = json!({
-            "action": "set_group_card",
-            "params": {
+        let send_api = SendApi::new(
+            "set_group_card",
+            json!({
                 "group_id":group_id,
-                "user_id":user_id,
-                "card":card,
-            },
-            "echo": "None" });
+                    "user_id":user_id,
+                    "card":card,
+            }),
+            "None",
+        );
+
 
         self.api_tx.send((send_api, None)).unwrap();
     }
@@ -449,13 +467,15 @@ impl RuntimeBot {
     ///
     /// `group_name`: 新群名
     pub fn set_group_name(&self, group_id: i64, group_name: &str) {
-        let send_api = json!({
-            "action": "set_group_name",
-            "params": {
+        let send_api = SendApi::new(
+            "set_group_name",
+            json!({
                 "group_id":group_id,
-                "group_name":group_name,
-            },
-            "echo": "None" });
+                    "group_name":group_name,
+            }),
+            "None",
+        );
+
 
         self.api_tx.send((send_api, None)).unwrap();
     }
@@ -468,13 +488,15 @@ impl RuntimeBot {
     ///
     /// `is_dismiss`: 是否解散，如果登录号是群主，则仅在此项为 true 时能够解散
     pub fn set_group_leave(&self, group_id: i64, is_dismiss: bool) {
-        let send_api = json!({
-            "action": "set_group_leave",
-            "params": {
+        let send_api = SendApi::new(
+            "set_group_leave",
+            json!({
                 "group_id":group_id,
-                "is_dismiss":is_dismiss,
-            },
-            "echo": "None" });
+                    "is_dismiss":is_dismiss,
+            }),
+            "None",
+        );
+
 
         self.api_tx.send((send_api, None)).unwrap();
     }
@@ -489,14 +511,16 @@ impl RuntimeBot {
     ///
     /// `special_title`: 专属头衔，空字符串表示删除专属头衔
     pub fn set_group_special_title(&self, group_id: i64, user_id: i64, special_title: &str) {
-        let send_api = json!({
-            "action": "set_group_special_title",
-            "params": {
+        let send_api = SendApi::new(
+            "set_group_special_title",
+            json!({
                 "group_id":group_id,
-                "user_id":user_id,
-                "special_title":special_title,
-            },
-            "echo": "None" });
+                    "user_id":user_id,
+                    "special_title":special_title,
+            }),
+            "None",
+        );
+
 
         self.api_tx.send((send_api, None)).unwrap();
     }
@@ -510,14 +534,16 @@ impl RuntimeBot {
     ///
     /// `remark`: 添加后的好友备注（仅在同意时有效）
     pub fn set_friend_add_request(&self, flag: &str, approve: bool, remark: &str) {
-        let send_api = json!({
-            "action": "set_friend_add_request",
-            "params": {
+        let send_api = SendApi::new(
+            "set_friend_add_request",
+            json!({
                 "flag":flag,
-                "approve":approve,
-                "remark":remark,
-            },
-            "echo": "None" });
+                    "approve":approve,
+                    "remark":remark,
+            }),
+            "None",
+        );
+
 
         self.api_tx.send((send_api, None)).unwrap();
     }
@@ -533,15 +559,17 @@ impl RuntimeBot {
     ///
     /// `remark`: 可为空, 拒绝理由（仅在拒绝时有效）
     pub fn set_group_add_request(&self, flag: &str, sub_type: &str, approve: bool, reason: &str) {
-        let send_api = json!({
-            "action": "set_friend_add_request",
-            "params": {
+        let send_api = SendApi::new(
+            "set_friend_add_request",
+            json!({
                 "flag":flag,
-                "sub_type":sub_type,
-                "approve":approve,
-                "reason":reason,
-            },
-            "echo": "None" });
+                    "sub_type":sub_type,
+                    "approve":approve,
+                    "reason":reason,
+            }),
+            "None",
+        );
+
 
         self.api_tx.send((send_api, None)).unwrap();
     }
@@ -550,10 +578,8 @@ impl RuntimeBot {
     ///
     /// 用于清理积攒了太多的**OneBot服务端**缓存文件。**并非是对于本框架清除**。
     pub fn clean_cache(&self) {
-        let send_api = json!({
-            "action": "clean_cache",
-            "params": {},
-            "echo": "None" });
+        let send_api = SendApi::new("clean_cache", json!({}), "None");
+
 
         self.api_tx.send((send_api, None)).unwrap();
     }
@@ -566,12 +592,14 @@ impl RuntimeBot {
     ///
     /// `message_id`: 消息ID
     pub fn get_msg(&self, message_id: i32) -> Result<Value, ApiError> {
-        let send_api = json!({
-            "action": "get_msg",
-            "params": {
+        let send_api = SendApi::new(
+            "get_msg",
+            json!({
                 "message_id":message_id
-            },
-            "echo": "Some" });
+            }),
+            &generate_key(),
+        );
+
         let api_rx = self.mpsc_and_send(send_api);
         match api_rx.recv().unwrap() {
             Ok(v) => Ok(v),
@@ -587,12 +615,14 @@ impl RuntimeBot {
     ///
     /// `id`: 合并转发 ID
     pub fn get_forward_msg(&self, id: &str) -> Result<Value, ApiError> {
-        let send_api = json!({
-            "action": "get_forward_msg",
-            "params": {
+        let send_api = SendApi::new(
+            "get_forward_msg",
+            json!({
                 "id":id
-            },
-            "echo": "Some" });
+            }),
+            &generate_key(),
+        );
+
         let api_rx = self.mpsc_and_send(send_api);
         match api_rx.recv().unwrap() {
             Ok(v) => Ok(v),
@@ -605,10 +635,8 @@ impl RuntimeBot {
     }
     /// 获取获取登录号信息
     pub fn get_login_info(&self) -> Result<Value, ApiError> {
-        let send_api = json!({
-            "action": "get_login_info",
-            "params": {},
-            "echo": "Some" });
+        let send_api = SendApi::new("get_login_info", json!({}), &generate_key());
+
         let api_rx = self.mpsc_and_send(send_api);
         match api_rx.recv().unwrap() {
             Ok(v) => Ok(v),
@@ -623,13 +651,15 @@ impl RuntimeBot {
     ///
     /// `no_cache`: 是否不使用缓存（使用缓存可能更新不及时，但响应更快）
     pub fn get_stranger_info(&self, user_id: i64, no_cache: bool) -> Result<Value, ApiError> {
-        let send_api = json!({
-            "action": "get_stranger_info",
-            "params": {
-                "user_id":user_id,
-                "no_cache":no_cache
-            },
-            "echo": "Some" });
+        let send_api = SendApi::new(
+            "get_stranger_info",
+            json!({
+                 "user_id":user_id,
+                    "no_cache":no_cache
+            }),
+            &generate_key(),
+        );
+
         let api_rx = self.mpsc_and_send(send_api);
         match api_rx.recv().unwrap() {
             Ok(v) => Ok(v),
@@ -642,10 +672,8 @@ impl RuntimeBot {
     }
     /// 获取好友列表
     pub fn get_friend_list(&self) -> Result<Value, ApiError> {
-        let send_api = json!({
-            "action": "get_friend_list",
-            "params": {},
-            "echo": "Some" });
+        let send_api = SendApi::new("get_friend_list", json!({}), &generate_key());
+
         let api_rx = self.mpsc_and_send(send_api);
         match api_rx.recv().unwrap() {
             Ok(v) => Ok(v),
@@ -660,13 +688,15 @@ impl RuntimeBot {
     ///
     /// `no_cache`: 是否不使用缓存（使用缓存可能更新不及时，但响应更快）
     pub fn get_group_info(&self, group_id: i64, no_cache: bool) -> Result<Value, ApiError> {
-        let send_api = json!({
-            "action": "get_group_info",
-            "params": {
-                "group_id":group_id,
-                "no_cache":no_cache
-            },
-            "echo": "Some" });
+        let send_api = SendApi::new(
+            "get_group_info",
+            json!({
+                 "group_id":group_id,
+                    "no_cache":no_cache
+            }),
+            &generate_key(),
+        );
+
         let api_rx = self.mpsc_and_send(send_api);
         match api_rx.recv().unwrap() {
             Ok(v) => Ok(v),
@@ -679,10 +709,8 @@ impl RuntimeBot {
     }
     /// 获取群列表
     pub fn get_group_list(&self) -> Result<Value, ApiError> {
-        let send_api = json!({
-            "action": "get_group_list",
-            "params": {},
-            "echo": "Some" });
+        let send_api = SendApi::new("get_group_list", json!({}), &generate_key());
+
         let api_rx = self.mpsc_and_send(send_api);
         match api_rx.recv().unwrap() {
             Ok(v) => Ok(v),
@@ -704,14 +732,16 @@ impl RuntimeBot {
         user_id: i64,
         no_cache: bool,
     ) -> Result<Value, ApiError> {
-        let send_api = json!({
-            "action": "get_group_member_info",
-            "params": {
+        let send_api = SendApi::new(
+            "get_group_member_info",
+            json!({
                 "group_id":group_id,
-                "user_id":user_id,
-                "no_cache":no_cache
-            },
-            "echo": "Some" });
+                    "user_id":user_id,
+                    "no_cache":no_cache
+            }),
+            &generate_key(),
+        );
+
         let api_rx = self.mpsc_and_send(send_api);
         match api_rx.recv().unwrap() {
             Ok(v) => Ok(v),
@@ -728,12 +758,14 @@ impl RuntimeBot {
     ///
     /// `group_id`
     pub fn get_group_member_list(&self, group_id: i64) -> Result<Value, ApiError> {
-        let send_api = json!({
-            "action": "get_group_member_list",
-            "params": {
+        let send_api = SendApi::new(
+            "get_group_member_list",
+            json!({
                 "group_id":group_id,
-            },
-            "echo": "Some" });
+            }),
+            &generate_key(),
+        );
+
         let api_rx = self.mpsc_and_send(send_api);
         match api_rx.recv().unwrap() {
             Ok(v) => Ok(v),
@@ -765,13 +797,15 @@ impl RuntimeBot {
             HonorType::Emotion => "emotion",
         };
 
-        let send_api = json!({
-            "action": "get_group_honor_info",
-            "params": {
+        let send_api = SendApi::new(
+            "get_group_honor_info",
+            json!({
                 "group_id":group_id,
-                "type":honor_type
-            },
-            "echo": "Some" });
+                    "type":honor_type
+            }),
+            &generate_key(),
+        );
+
         let api_rx = self.mpsc_and_send(send_api);
         match api_rx.recv().unwrap() {
             Ok(v) => Ok(v),
@@ -789,12 +823,14 @@ impl RuntimeBot {
     ///
     /// `domain`: 需要获取 cookies 的域名
     pub fn get_credentials(&self, domain: &str) -> Result<Value, ApiError> {
-        let send_api = json!({
-            "action": "get_credentials",
-            "params": {
+        let send_api = SendApi::new(
+            "get_credentials",
+            json!({
                 "domain":domain,
-            },
-            "echo": "Some" });
+            }),
+            &generate_key(),
+        );
+
         let api_rx = self.mpsc_and_send(send_api);
         match api_rx.recv().unwrap() {
             Ok(v) => Ok(v),
@@ -808,10 +844,8 @@ impl RuntimeBot {
 
     /// 获取运行状态
     pub fn get_status(&self) -> Result<Value, ApiError> {
-        let send_api = json!({
-            "action": "get_status",
-            "params": {},
-            "echo": "Some" });
+        let send_api = SendApi::new("get_status", json!({}), &generate_key());
+
         let api_rx = self.mpsc_and_send(send_api);
         match api_rx.recv().unwrap() {
             Ok(v) => Ok(v),
@@ -821,10 +855,7 @@ impl RuntimeBot {
     }
     /// 获取版本信息
     pub fn get_version_info(&self) -> Result<Value, ApiError> {
-        let send_api = json!({
-            "action": "get_version_info",
-            "params": {},
-            "echo": "Some" });
+        let send_api = SendApi::new("get_version_info", json!({}), &generate_key());
         let api_rx = self.mpsc_and_send(send_api);
         match api_rx.recv().unwrap() {
             Ok(v) => Ok(v),
@@ -845,10 +876,7 @@ impl RuntimeBot {
     ///
     /// `params`: 参数
     pub fn send_api(&self, action: &str, params: Value) {
-        let send_api = json!({
-            "action": action,
-            "params": params,
-            "echo": "None" });
+        let send_api = SendApi::new(action, params, "None");
 
         self.api_tx.send((send_api, None)).unwrap();
     }
@@ -862,17 +890,14 @@ impl RuntimeBot {
     ///
     /// `params`: 参数
     pub fn send_api_return(&self, action: &str, params: Value) -> Result<Value, ApiError> {
-        let send_api = json!({
-            "action": action,
-            "params": params,
-            "echo": "Some" });
+        let send_api = SendApi::new(action, params, &generate_key());
+
         let api_rx = self.mpsc_and_send(send_api);
         match api_rx.recv().unwrap() {
             Ok(v) => Ok(v),
             // 参数错误
             Err(_) => Err(ApiError::ParamsError(format!(
-                "Check the incoming parameter: action: '{}' params: '{}'",
-                action, params
+                "Check the incoming parameter: "
             ))),
         }
     }
@@ -880,7 +905,7 @@ impl RuntimeBot {
 
 
 impl RuntimeBot {
-    fn mpsc_and_send(&self, send_api: Value) -> mpsc::Receiver<Result<Value, Error>> {
+    fn mpsc_and_send(&self, send_api: SendApi) -> mpsc::Receiver<Result<Value, Error>> {
         #[allow(clippy::type_complexity)]
         let (api_tx, api_rx): (
             mpsc::Sender<Result<Value, Error>>,
