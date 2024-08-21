@@ -125,7 +125,6 @@ cargo add --path plugins/hi
 use kovi::build_bot;
 
 fn main() {
-    kovi::set_logger();
     let bot = build_bot!(hi,hi2,plugin123);
     bot.run()
 }
