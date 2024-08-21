@@ -4,7 +4,7 @@
 
 A OneBot V11 bot plugin framework developed in Rust.
 
-More documentation can be found in the [Kovi Doc](https://threkork.github.io/kovi-doc/).
+You can find more documentation in the [Kovi Doc](https://threkork.github.io/kovi-doc/).
 
 The project is currently in beta.
 
@@ -22,27 +22,25 @@ The bot plugin development method is derived from [Kivi](#). The [Kivi](#) repos
 
 ## Getting Started
 
-**Note⚠️: The project is in Beta, and the following may change.**
-
-**Note⚠️: The project currently only supports the OneBot V11 forward WebSocket protocol.**
-
 The project is written in [Rust](#), and plugins also need to be written in [Rust](#). Please ensure that Rust is installed locally.
 
 1. Create a basic Rust project and add the framework.
 
 ```bash
-cargo new my-kovi-bot
+cargo install kovi-cli
+cargo kovi new my-kovi-bot
 cd ./my-kovi-bot
-cargo add Kovi
 ```
 
-2. Create a bot instance in **src/main.rs**
+2. You will see that a bot instance has been generated in **src/main.rs**.
 
 ```rust
 use kovi::build_bot;
+
 fn main() {
-    let bot = build_bot!();
-    bot.run()
+    kovi::set_logger();
+    let a = build_bot!();
+    a.run()
 }
 ```
 
@@ -62,31 +60,19 @@ If this is your first run, during `build_bot`, you'll be prompted to enter some 
 (No default value)
 ```
 
-
 ## Plugin Development
 
 ### Creating a Plugin
 
-The recommended way to develop plugins is to create a new directory `plugins` to store them. Follow the steps below.
-
-First, create a Cargo workspace, write `[workspace]` in `Cargo.toml`
-
-```toml
-[package]
-...
-[dependencies]
-...
-
-[workspace]
-```
-
-Then,
+Follow the steps below.
 
 ```bash
-cargo new plugins/hi --lib
+cargo kovi create hi
 ```
 
-Cargo will take care of everything for you.
+`kovi-cli` and `cargo` will take care of everything for you.
+
+You will see that a new `plugins/hi` directory has been created. This is also the recommended way to develop plugins, as it’s always good to manage them in a directory.
 
 ### Writing a Plugin
 
@@ -117,16 +103,21 @@ Plugins generally don't need a `main.rs`.
 
 ### Mounting the Plugin
 
-Import the plugin into `my-kovi-bot`'s `main.rs`.
+```bash
+cargo kovi add hi
+```
+
+Alternatively, you can use `cargo` directly; both are the same. This will add a local dependency in the root project’s `Cargo.toml`.
 
 ```bash
-cargo add --path plugins/hi  
+cargo add --path plugins/hi
 ```
 
 ```rust
 use kovi::build_bot;
 
 fn main() {
+    kovi::set_logger();
     let bot = build_bot!(hi,hi2,plugin123);
     bot.run()
 }
@@ -134,14 +125,14 @@ fn main() {
 
 ### More Plugin Examples
 
-#### Bot Sending Messages Actively
+#### Bot Actively Sending Messages
 
 ```rust
 use kovi::PluginBuilder;
 
 #[kovi::plugin]
 pub fn main(mut plugin: PluginBuilder) {
-    // Build RuntimeBot
+    // Build a RuntimeBot
     let bot = plugin.build_runtime_bot();
     let user_id = bot.main_admin;
 
@@ -155,4 +146,4 @@ The closure passed to `plugin.on_msg()` runs every time a message is received.
 
 Kovi has encapsulated all available OneBot standard APIs. To extend the API, you can use `RuntimeBot`'s `send_api()` to send APIs yourself.
 
-More documentation can be found in the [Kovi Doc](https://threkork.github.io/kovi-doc/).
+You can find more documentation in the [Kovi Doc](https://threkork.github.io/kovi-doc/).

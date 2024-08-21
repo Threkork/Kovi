@@ -28,26 +28,24 @@
 
 ## 快速上手
 
-**注意⚠️，项目处于 Beta 状态，以下可能会变动**
-
-**注意⚠️，项目目前只支持 OneBot V11 正向 WebSocket 协议**
-
 项目由 [Rust](#) 所写，插件也需用 [Rust](#) 写，请确保本地已安装。
 
 1. 创建基本rust项目，加入框架。
 
 ```bash
-cargo new my-kovi-bot
+cargo install kovi-cli
+cargo kovi new my-kovi-bot
 cd ./my-kovi-bot
-cargo add Kovi
 ```
 
-2. 在 **src/main.rs** 创建bot实例
+2. 可以看到在 **src/main.rs** 已经生成好bot实例
 ```rust
 use kovi::build_bot;
+
 fn main() {
-    let bot = build_bot!();
-    bot.run()
+    kovi::set_logger();
+    let a = build_bot!();
+    a.run()
 }
 ```
 
@@ -72,26 +70,15 @@ OneBot服务端的access_token是什么？ (默认值：空)
 
 ### 创建插件
 
-推荐的插件开发方法是创建新目录 `plugins` 储存插件。跟着下面来吧。
-
-首先创建 Cargo 工作区，在 `Cargo.toml` 写入 `[workspace]`
-
-```toml
-[package]
-略
-[dependencies]
-略
-
-[workspace]
-```
-
-接着
+跟着下面来吧。
 
 ```bash
-cargo new plugins/hi --lib
+cargo kovi create hi
 ```
 
-Cargo 会帮你做好一切的。
+kovi-cli 和 cargo 会帮你做好一切的。
+
+可以看到创建了新的 `plugins/hi` 目录，这也是推荐的插件开发方法，有目录管理总会是好的。
 
 ### 编写插件
 
@@ -125,13 +112,20 @@ main函数写在 `lib.rs` 是因为等下要导出给bot实例挂载。
 将插件导入到 `my-kovi-bot` 的 `main.rs`
 
 ```bash
-cargo add --path plugins/hi  
+cargo kovi add hi
+```
+
+或者你可以直接用 cargo ，两者是一样的。就是在根项目下的 `Cargo.toml` 添加本地依赖
+
+```bash
+cargo add --path plugins/hi
 ```
 
 ```rust
 use kovi::build_bot;
 
 fn main() {
+    kovi::set_logger();
     let bot = build_bot!(hi,hi2,plugin123);
     bot.run()
 }

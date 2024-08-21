@@ -274,6 +274,7 @@ impl Message {
     }
 
     /// 传入字符串，返回 CQString
+    #[allow(clippy::should_implement_trait)]
     pub fn from_str(s: &str) -> Message {
         Message::CQString(s.to_string())
     }

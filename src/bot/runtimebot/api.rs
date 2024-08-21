@@ -896,9 +896,9 @@ impl RuntimeBot {
         match api_rx.recv().unwrap() {
             Ok(v) => Ok(v),
             // 参数错误
-            Err(_) => Err(ApiError::ParamsError(format!(
-                "Check the incoming parameter: "
-            ))),
+            Err(_) => Err(ApiError::ParamsError(
+                "Check the incoming parameter".to_string(),
+            )),
         }
     }
 }

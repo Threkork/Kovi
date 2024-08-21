@@ -9,6 +9,7 @@ use crate::bot::{
         event::{AllMsgEvent, AllNoticeEvent, AllRequestEvent},
         Listen, OnType,
     },
+    SendApi,
 };
 use log::{debug, error, info};
 use serde_json::{json, Value};
@@ -17,7 +18,6 @@ use std::{
     sync::{mpsc, Arc, RwLock},
     thread,
 };
-use websocket_lite::{ClientBuilder, Message};
 
 impl Bot {
     pub fn handler_msg(bot: Arc<RwLock<Self>>, msg: String, api_tx: mpsc::Sender<ApiMpsc>) {
@@ -29,7 +29,7 @@ impl Bot {
             match meta_event_type.as_str().unwrap() {
                 // 生命周期一开始请求bot的信息
                 "lifecycle" => {
-                    handler::handle_lifecycle(bot.clone());
+                    handler::handle_lifecycle(bot.clone(), api_tx);
                     return;
                 }
                 "heartbeat" => {
@@ -155,61 +155,26 @@ pub fn handler_on(event: &Event, handler: ListenFn) {
 }
 
 
-pub fn handle_lifecycle(bot: Arc<RwLock<Bot>>) {
-    let (host, port, access_token) = {
-        let bot = bot.read().unwrap();
-        (
-            bot.information.server.host,
-            bot.information.server.port,
-            bot.information.server.access_token.clone(),
-        )
-    };
-    let url = format!("ws://{}:{}/api", host, port);
-    let mut client = ClientBuilder::new(&url).unwrap();
-    client.add_header(
-        "Authorization".to_string(),
-        format!("Bearer {}", access_token),
-    );
-    let mut ws = match client.connect_insecure() {
-        Ok(v) => v,
+pub fn handle_lifecycle(bot: Arc<RwLock<Bot>>, api_tx_: mpsc::Sender<ApiMpsc>) {
+    let api_msg = SendApi::new("get_login_info", json!({}), "kovi");
+
+    #[allow(clippy::type_complexity)]
+    let (api_tx, api_rx): (
+        mpsc::Sender<Result<Value, crate::error::Error>>,
+        mpsc::Receiver<Result<Value, crate::error::Error>>,
+    ) = mpsc::channel();
+
+    api_tx_.send((api_msg, Some(api_tx))).unwrap();
+
+    let receive = api_rx.recv().unwrap();
+
+    let self_info_value = match receive {
+        Ok(msg_result) => msg_result,
         Err(e) => exit_and_eprintln(e),
     };
-    let api_msg = json!({
-                        "action": "get_login_info","echo": "None"});
-    let api_msg = Message::text(api_msg.to_string());
-    ws.send(api_msg).unwrap();
-    let receive = ws.receive();
-    let self_info_value: Value;
-    match receive {
-        Ok(msg_result) => match msg_result {
-            Some(msg) => {
-                if !msg.opcode().is_text() {
-                    return;
-                }
-                let text = msg.as_text().unwrap();
 
-                debug!("{}", text);
-
-                self_info_value = serde_json::from_str(text).unwrap();
-            }
-            None => exit_and_eprintln("Error, UnknownError"),
-        },
-        Err(e) => exit_and_eprintln(e),
-    }
-
-    let self_id = self_info_value
-        .get("data")
-        .unwrap()
-        .get("user_id")
-        .unwrap()
-        .as_i64()
-        .unwrap();
-    let self_name = self_info_value
-        .get("data")
-        .unwrap()
-        .get("nickname")
-        .unwrap()
-        .to_string();
+    let self_id = self_info_value.get("user_id").unwrap().as_i64().unwrap();
+    let self_name = self_info_value.get("nickname").unwrap().to_string();
     info!(
         "Bot connection successful，Nickname:{},ID:{}",
         self_name, self_id

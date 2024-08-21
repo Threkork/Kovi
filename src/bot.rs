@@ -86,6 +86,9 @@ struct ConfigJson {
     debug: bool,
 }
 
+type AsyncFn =
+    dyn Fn(PluginBuilder) -> Pin<Box<dyn Future<Output = ()> + Send>> + Send + Sync + 'static;
+
 /// bot结构体
 #[derive(Clone)]
 pub struct Bot {
@@ -113,9 +116,7 @@ pub struct BotSyncMain {
 pub struct BotAsyncMain {
     pub name: String,
     pub version: String,
-    pub main: Arc<
-        dyn Fn(PluginBuilder) -> Pin<Box<dyn Future<Output = ()> + Send>> + Send + Sync + 'static,
-    >,
+    pub main: Arc<AsyncFn>,
 }
 
 /// bot信息结构体
@@ -207,17 +208,8 @@ impl Bot {
         self.main.push(BotMain::BotSyncMain(bot_main))
     }
 
-    pub fn mount_async_main<T>(
-        &mut self,
-        name: T,
-        version: T,
-        main: Arc<
-            dyn Fn(PluginBuilder) -> Pin<Box<dyn Future<Output = ()> + Send>>
-                + Send
-                + Sync
-                + 'static,
-        >,
-    ) where
+    pub fn mount_async_main<T>(&mut self, name: T, version: T, main: Arc<AsyncFn>)
+    where
         String: From<T>,
     {
         let name = String::from(name);
@@ -335,8 +327,7 @@ impl Bot {
         //储存所有main()
         let mut handler_main_job = Vec::new();
 
-        for _ in 0..main_job_vec.len() {
-            let main_job = main_job_vec.pop().unwrap();
+        while let Some(main_job) = main_job_vec.pop() {
             let bot_main_job_clone = bot_main_job_clone.clone();
             let api_tx = api_tx_main_job_clone.clone();
             handler_main_job.push(tokio::spawn(async move {
@@ -375,7 +366,7 @@ impl Bot {
             .into_client_request()
             .unwrap();
 
-        if access_token != "" {
+        if !access_token.is_empty() {
             request.headers_mut().insert(
                 "Authorization",
                 HeaderValue::from_str(&format!("Bearer {}", access_token)).unwrap(),
@@ -415,7 +406,7 @@ impl Bot {
             .into_client_request()
             .unwrap();
 
-        if access_token != "" {
+        if !access_token.is_empty() {
             request.headers_mut().insert(
                 "Authorization",
                 HeaderValue::from_str(&format!("Bearer {}", access_token)).unwrap(),

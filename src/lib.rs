@@ -13,6 +13,7 @@ pub mod log;
 pub use bot::message::Message;
 pub use bot::plugin_builder::PluginBuilder;
 pub use kovi_macros::plugin;
+pub use log::set_logger;
 
 /// Everything about bots is inside
 pub mod bot;
