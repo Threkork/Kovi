@@ -43,7 +43,6 @@ cd ./my-kovi-bot
 use kovi::build_bot;
 
 fn main() {
-    kovi::set_logger();
     let a = build_bot!();
     a.run()
 }
