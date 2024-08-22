@@ -92,7 +92,7 @@ use kovi::PluginBuilder;
 
 #[kovi::plugin] //构造插件
 pub fn main(mut plugin: PluginBuilder) {
-    // 必须要求main传入 PluginBuilder ，这是插件的基础。
+    // 必须要求 main 传入 PluginBuilder ，这是插件的基础。
     
     plugin.on_msg(move |event| {
         // on_msg() 为监听消息，event 里面包含本次消息的所有信息。
@@ -139,7 +139,7 @@ use kovi::PluginBuilder;
 
 #[kovi::plugin]
 pub fn main(mut plugin: PluginBuilder) {
-    // 构造RuntimeBot
+    // 构造 RuntimeBot
     let bot = plugin.build_runtime_bot();
     let user_id = bot.main_admin;
 
