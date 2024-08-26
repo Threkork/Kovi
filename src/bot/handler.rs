@@ -1,25 +1,36 @@
-use super::{
-    plugin_builder::{event::Event, ListenFn},
-    runtimebot::ApiMpsc,
-    Bot, LifeStatus,
-};
-use crate::bot::{
-    exit_and_eprintln, handler,
-    plugin_builder::{
-        event::{AllMsgEvent, AllNoticeEvent, AllRequestEvent},
-        Listen, OnType,
-    },
-    SendApi,
-};
+use crate::bot::*;
 use log::{debug, error, info};
-use serde_json::{json, Value};
-use std::{
-    borrow::Borrow,
-    sync::{mpsc, Arc, RwLock},
-    thread,
+use plugin_builder::{
+    event::{AllMsgEvent, AllNoticeEvent, AllRequestEvent, OneBotEvent},
+    ListenFn,
 };
+use serde_json::{json, Value};
+use std::sync::{mpsc, Arc, RwLock};
+
+
+/// Kovi内部事件
+pub enum InternalEvent {
+    KoviEvent(KoviEvent),
+    OneBotEvent(String),
+}
+
+pub enum KoviEvent {
+    Drop,
+}
 
 impl Bot {
+    pub async fn handler_event(
+        bot: Arc<RwLock<Self>>,
+        event: InternalEvent,
+        api_tx: mpsc::Sender<ApiMpsc>,
+    ) {
+        match event {
+            InternalEvent::KoviEvent(event) => Self::handle_kovi_event(bot, event).await,
+            InternalEvent::OneBotEvent(msg) => Self::handler_msg(bot, msg, api_tx),
+        }
+    }
+
+
     pub fn handler_msg(bot: Arc<RwLock<Self>>, msg: String, api_tx: mpsc::Sender<ApiMpsc>) {
         let msg_json: Value = serde_json::from_str(&msg).unwrap();
 
@@ -41,7 +52,6 @@ impl Bot {
             }
         }
 
-        let plugins = bot.read().unwrap().plugins.clone();
 
         let event = match msg_json.get("post_type").unwrap().as_str().unwrap() {
             "message" => {
@@ -62,7 +72,7 @@ impl Bot {
                     None => "".to_string(),
                 };
                 info!("[{message_type}{group_id}{nickname} {id}]: {text}");
-                Event::OnMsg(e)
+                OneBotEvent::OnMsg(e)
             }
             "notice" => {
                 let e = match AllNoticeEvent::new(&msg) {
@@ -72,7 +82,7 @@ impl Bot {
                         return;
                     }
                 };
-                Event::OnAllNotice(e)
+                OneBotEvent::OnAllNotice(e)
             }
             "request" => {
                 let e = match AllRequestEvent::new(&msg) {
@@ -82,7 +92,7 @@ impl Bot {
                         return;
                     }
                 };
-                Event::OnAllRequest(e)
+                OneBotEvent::OnAllRequest(e)
             }
 
             _ => {
@@ -92,66 +102,88 @@ impl Bot {
 
         let event = Arc::new(event);
 
-        for plugin in plugins {
-            for listen in plugin.all_listen {
-                handle_listen(listen, event.clone(), bot.clone());
+        let plugins = bot.read().unwrap().plugins.clone();
+
+        for plugin in plugins.into_values() {
+            for listen in plugin {
+                let event_clone = Arc::clone(&event);
+                let bot_clone = bot.clone();
+                tokio::spawn(async move {
+                    handle_listen(listen, HandleListenE::OneBotEvent(event_clone), bot_clone)
+                });
+            }
+        }
+    }
+    async fn handle_kovi_event(bot: Arc<RwLock<Self>>, event: KoviEvent) {
+        let plugins = bot.read().unwrap().plugins.clone();
+        // let event = Arc::new(event);
+        #[allow(clippy::needless_late_init)]
+        let drop_task;
+        match event {
+            KoviEvent::Drop => {
+                let mut task_vec = Vec::new();
+                for plugin in plugins.into_values() {
+                    for listen in plugin {
+                        // let event_clone = Arc::clone(&event);
+                        let bot_clone = bot.clone();
+                        task_vec.push(tokio::spawn(async move {
+                            handle_listen(listen, HandleListenE::KoviEvent, bot_clone)
+                        }));
+                    }
+                }
+                drop_task = Some(task_vec)
+            }
+        }
+        if let Some(drop_task) = drop_task {
+            for task in drop_task {
+                task.await.unwrap()
             }
         }
     }
 }
 
-fn handle_listen(listen: Listen, event: Arc<Event>, bot: Arc<RwLock<Bot>>) {
-    match listen.on_type {
-        OnType::OnMsg => {
-            if let Event::OnMsg(_) = event.borrow() {
-            } else {
-                return;
-            };
-            let event = Arc::clone(&event);
-            thread::spawn(move || handler::handler_on(&event, listen.handler));
-        }
-        OnType::OnAdminMsg => {
-            let bot = bot.clone();
-            let event = Arc::clone(&event);
-
-            let event_b = if let Event::OnMsg(e) = event.borrow() {
-                e
-            } else {
-                return;
-            };
-            let user_id = event_b.user_id;
-
-            let admin_vec = {
-                let bot = bot.read().unwrap();
-                let mut admin_vec = bot.information.admin.clone();
-                admin_vec.push(bot.information.main_admin);
-                admin_vec
-            };
-            if admin_vec.contains(&user_id) {
-                handler::handler_on(&event, listen.handler)
-            }
-        }
-        OnType::OnAllNotice => {
-            if let Event::OnAllNotice(_) = event.borrow() {
-            } else {
-                return;
-            };
-            let event = Arc::clone(&event);
-            thread::spawn(move || handler::handler_on(&event, listen.handler));
-        }
-        OnType::OnAllRequest => {
-            if let Event::OnAllRequest(_) = event.borrow() {
-            } else {
-                return;
-            };
-            let event = Arc::clone(&event);
-            thread::spawn(move || handler::handler_on(&event, listen.handler));
-        }
-    }
+enum HandleListenE {
+    OneBotEvent(Arc<OneBotEvent>),
+    KoviEvent, //(Arc<KoviEvent>)
 }
 
-pub fn handler_on(event: &Event, handler: ListenFn) {
-    handler(event)
+fn handle_listen(listen: ListenFn, event: HandleListenE, bot: Arc<RwLock<Bot>>) {
+    match (event, listen) {
+        (HandleListenE::OneBotEvent(event), ListenFn::MsgFn(handler)) => {
+            if let OneBotEvent::OnMsg(_) = *event {
+                handler(&event);
+            }
+        }
+        (HandleListenE::OneBotEvent(event), ListenFn::AdminMsg(handler)) => {
+            if let OneBotEvent::OnMsg(ref event_b) = *event {
+                let user_id = event_b.user_id;
+                let admin_vec = {
+                    let bot = bot.read().unwrap();
+                    let mut admin_vec = bot.information.admin.clone();
+                    admin_vec.push(bot.information.main_admin);
+                    admin_vec
+                };
+                if admin_vec.contains(&user_id) {
+                    handler(&event);
+                }
+            }
+        }
+        (HandleListenE::OneBotEvent(event), ListenFn::AllNotice(handler)) => {
+            if let OneBotEvent::OnAllNotice(_) = *event {
+                handler(&event);
+            }
+        }
+        (HandleListenE::OneBotEvent(event), ListenFn::AllRequest(handler)) => {
+            if let OneBotEvent::OnAllRequest(_) = *event {
+                handler(&event);
+            }
+        }
+        (HandleListenE::KoviEvent, ListenFn::KoviEventDrop(handler)) => {
+            info!("A plugin is performing its shutdown tasks, please wait. 有插件正在进行结束工作，请稍候。");
+            handler();
+        }
+        _ => {}
+    }
 }
 
 
@@ -160,8 +192,8 @@ pub fn handle_lifecycle(bot: Arc<RwLock<Bot>>, api_tx_: mpsc::Sender<ApiMpsc>) {
 
     #[allow(clippy::type_complexity)]
     let (api_tx, api_rx): (
-        mpsc::Sender<Result<Value, crate::error::Error>>,
-        mpsc::Receiver<Result<Value, crate::error::Error>>,
+        mpsc::Sender<Result<ApiReturn, crate::error::Error>>,
+        mpsc::Receiver<Result<ApiReturn, crate::error::Error>>,
     ) = mpsc::channel();
 
     api_tx_.send((api_msg, Some(api_tx))).unwrap();
@@ -173,8 +205,13 @@ pub fn handle_lifecycle(bot: Arc<RwLock<Bot>>, api_tx_: mpsc::Sender<ApiMpsc>) {
         Err(e) => exit_and_eprintln(e),
     };
 
-    let self_id = self_info_value.get("user_id").unwrap().as_i64().unwrap();
-    let self_name = self_info_value.get("nickname").unwrap().to_string();
+    let self_id = self_info_value
+        .data
+        .get("user_id")
+        .unwrap()
+        .as_i64()
+        .unwrap();
+    let self_name = self_info_value.data.get("nickname").unwrap().to_string();
     info!(
         "Bot connection successful，Nickname:{},ID:{}",
         self_name, self_id

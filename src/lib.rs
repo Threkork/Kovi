@@ -13,7 +13,11 @@ mod log;
 pub use bot::message::Message;
 pub use bot::plugin_builder::PluginBuilder;
 pub use kovi_macros::plugin;
+pub use tokio;
 
 /// Everything about bots is inside
 pub mod bot;
 pub mod error;
+
+#[cfg(feature = "utils")]
+pub mod utils;

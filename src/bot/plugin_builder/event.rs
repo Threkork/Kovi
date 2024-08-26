@@ -5,7 +5,7 @@ use serde_json::{self, Value};
 mod msg_event;
 
 #[derive(Debug, Clone)]
-pub enum Event {
+pub enum OneBotEvent {
     OnMsg(AllMsgEvent),
     OnAllNotice(AllNoticeEvent),
     OnAllRequest(AllRequestEvent),

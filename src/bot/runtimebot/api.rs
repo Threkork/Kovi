@@ -4,7 +4,7 @@ use crate::{
     error::{ApiError, Error},
 };
 use log::info;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::sync::mpsc;
 use tokio_tungstenite::tungstenite::handshake::client::generate_key;
@@ -16,6 +16,14 @@ pub enum HonorType {
     Legend,
     StrongNewbie,
     Emotion,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct ApiReturn {
+    pub status: String,
+    pub retcode: i32,
+    pub data: Value,
+    pub echo: String,
 }
 
 
@@ -43,7 +51,7 @@ impl RuntimeBot {
         info!("[send] [to group {group_id}]: {}", msg.to_human_string());
         let api_rx = self.mpsc_and_send(send_api);
         match api_rx.recv().unwrap() {
-            Ok(v) => Ok(v.get("message_id").unwrap().as_i64().unwrap() as i32),
+            Ok(v) => Ok(v.data.get("message_id").unwrap().as_i64().unwrap() as i32),
             // 参数错误
             Err(_) => Err(ApiError::UnknownError()),
         }
@@ -69,7 +77,7 @@ impl RuntimeBot {
         info!("[send] [to private {user_id}]: {}", msg.to_human_string());
         let api_rx = self.mpsc_and_send(send_api);
         match api_rx.recv().unwrap() {
-            Ok(v) => Ok(v.get("message_id").unwrap().as_i64().unwrap() as i32),
+            Ok(v) => Ok(v.data.get("message_id").unwrap().as_i64().unwrap() as i32),
             // 参数错误
             Err(_) => Err(ApiError::UnknownError()),
         }
@@ -80,7 +88,7 @@ impl RuntimeBot {
 
         let api_rx = self.mpsc_and_send(send_api);
         match api_rx.recv().unwrap() {
-            Ok(v) => Ok(v.get("yes").unwrap().as_bool().unwrap()),
+            Ok(v) => Ok(v.data.get("yes").unwrap().as_bool().unwrap()),
             // 参数错误
             Err(_) => Err(ApiError::UnknownError()),
         }
@@ -90,7 +98,7 @@ impl RuntimeBot {
         let send_api = SendApi::new("can_send_record", json!({}), &generate_key());
         let api_rx = self.mpsc_and_send(send_api);
         match api_rx.recv().unwrap() {
-            Ok(v) => Ok(v.get("yes").unwrap().as_bool().unwrap()),
+            Ok(v) => Ok(v.data.get("yes").unwrap().as_bool().unwrap()),
             // 参数错误
             Err(_) => Err(ApiError::UnknownError()),
         }
@@ -110,7 +118,7 @@ impl RuntimeBot {
         );
         let api_rx = self.mpsc_and_send(send_api);
         match api_rx.recv().unwrap() {
-            Ok(v) => Ok(v.get("cookies").unwrap().to_string()),
+            Ok(v) => Ok(v.data.get("cookies").unwrap().to_string()),
             // 参数错误
             Err(_) => Err(ApiError::ParamsError(format!(
                 "Check the incoming parameter: domain: '{}'",
@@ -124,7 +132,7 @@ impl RuntimeBot {
 
         let api_rx = self.mpsc_and_send(send_api);
         match api_rx.recv().unwrap() {
-            Ok(v) => Ok(v.get("token").unwrap().as_i64().unwrap() as i32),
+            Ok(v) => Ok(v.data.get("token").unwrap().as_i64().unwrap() as i32),
             // 参数错误
             Err(_) => Err(ApiError::UnknownError()),
         }
@@ -147,7 +155,7 @@ impl RuntimeBot {
         );
         let api_rx = self.mpsc_and_send(send_api);
         match api_rx.recv().unwrap() {
-            Ok(v) => match v.get("file") {
+            Ok(v) => match v.data.get("file") {
                 Some(v) => Ok(v.to_string()),
                 None => Err(ApiError::ParamsError(format!(
                     "Check the incoming parameter: file: '{}', out_format: '{}'",
@@ -176,7 +184,7 @@ impl RuntimeBot {
         );
         let api_rx = self.mpsc_and_send(send_api);
         match api_rx.recv().unwrap() {
-            Ok(v) => match v.get("file") {
+            Ok(v) => match v.data.get("file") {
                 Some(v) => Ok(v.to_string()),
                 None => Err(ApiError::ParamsError(format!(
                     "Check the incoming parameter: file: '{}'",
@@ -203,7 +211,7 @@ impl RuntimeBot {
         let send_api = SendApi::new(
             "send_msg",
             json!({
-                 "message_type":"group",
+                    "message_type":"group",
                     "group_id":group_id,
                     "message":msg,
                     "auto_escape":true,
@@ -256,7 +264,7 @@ impl RuntimeBot {
         self.api_tx.send((send_api, None)).unwrap();
     }
 
-    /// 点赞
+    /// 点赞，有些服务端会返回点赞失败，所以需要返回值的话请使用 send_like_return()
     /// # Arguments
     ///
     /// `user_id`
@@ -591,7 +599,7 @@ impl RuntimeBot {
     /// # Arguments
     ///
     /// `message_id`: 消息ID
-    pub fn get_msg(&self, message_id: i32) -> Result<Value, ApiError> {
+    pub fn get_msg(&self, message_id: i32) -> Result<ApiReturn, ApiError> {
         let send_api = SendApi::new(
             "get_msg",
             json!({
@@ -614,7 +622,7 @@ impl RuntimeBot {
     /// # Arguments
     ///
     /// `id`: 合并转发 ID
-    pub fn get_forward_msg(&self, id: &str) -> Result<Value, ApiError> {
+    pub fn get_forward_msg(&self, id: &str) -> Result<ApiReturn, ApiError> {
         let send_api = SendApi::new(
             "get_forward_msg",
             json!({
@@ -634,7 +642,7 @@ impl RuntimeBot {
         }
     }
     /// 获取获取登录号信息
-    pub fn get_login_info(&self) -> Result<Value, ApiError> {
+    pub fn get_login_info(&self) -> Result<ApiReturn, ApiError> {
         let send_api = SendApi::new("get_login_info", json!({}), &generate_key());
 
         let api_rx = self.mpsc_and_send(send_api);
@@ -650,11 +658,11 @@ impl RuntimeBot {
     /// `user_id`
     ///
     /// `no_cache`: 是否不使用缓存（使用缓存可能更新不及时，但响应更快）
-    pub fn get_stranger_info(&self, user_id: i64, no_cache: bool) -> Result<Value, ApiError> {
+    pub fn get_stranger_info(&self, user_id: i64, no_cache: bool) -> Result<ApiReturn, ApiError> {
         let send_api = SendApi::new(
             "get_stranger_info",
             json!({
-                 "user_id":user_id,
+                    "user_id":user_id,
                     "no_cache":no_cache
             }),
             &generate_key(),
@@ -671,7 +679,7 @@ impl RuntimeBot {
         }
     }
     /// 获取好友列表
-    pub fn get_friend_list(&self) -> Result<Value, ApiError> {
+    pub fn get_friend_list(&self) -> Result<ApiReturn, ApiError> {
         let send_api = SendApi::new("get_friend_list", json!({}), &generate_key());
 
         let api_rx = self.mpsc_and_send(send_api);
@@ -687,11 +695,11 @@ impl RuntimeBot {
     /// `group_id`
     ///
     /// `no_cache`: 是否不使用缓存（使用缓存可能更新不及时，但响应更快）
-    pub fn get_group_info(&self, group_id: i64, no_cache: bool) -> Result<Value, ApiError> {
+    pub fn get_group_info(&self, group_id: i64, no_cache: bool) -> Result<ApiReturn, ApiError> {
         let send_api = SendApi::new(
             "get_group_info",
             json!({
-                 "group_id":group_id,
+                    "group_id":group_id,
                     "no_cache":no_cache
             }),
             &generate_key(),
@@ -708,7 +716,7 @@ impl RuntimeBot {
         }
     }
     /// 获取群列表
-    pub fn get_group_list(&self) -> Result<Value, ApiError> {
+    pub fn get_group_list(&self) -> Result<ApiReturn, ApiError> {
         let send_api = SendApi::new("get_group_list", json!({}), &generate_key());
 
         let api_rx = self.mpsc_and_send(send_api);
@@ -731,7 +739,7 @@ impl RuntimeBot {
         group_id: i64,
         user_id: i64,
         no_cache: bool,
-    ) -> Result<Value, ApiError> {
+    ) -> Result<ApiReturn, ApiError> {
         let send_api = SendApi::new(
             "get_group_member_info",
             json!({
@@ -757,7 +765,7 @@ impl RuntimeBot {
     /// # Arguments
     ///
     /// `group_id`
-    pub fn get_group_member_list(&self, group_id: i64) -> Result<Value, ApiError> {
+    pub fn get_group_member_list(&self, group_id: i64) -> Result<ApiReturn, ApiError> {
         let send_api = SendApi::new(
             "get_group_member_list",
             json!({
@@ -787,7 +795,7 @@ impl RuntimeBot {
         &self,
         group_id: i64,
         honor_type: HonorType,
-    ) -> Result<Value, ApiError> {
+    ) -> Result<ApiReturn, ApiError> {
         let honor_type = match honor_type {
             HonorType::All => "all",
             HonorType::Talkative => "talkative",
@@ -822,7 +830,7 @@ impl RuntimeBot {
     /// # Arguments
     ///
     /// `domain`: 需要获取 cookies 的域名
-    pub fn get_credentials(&self, domain: &str) -> Result<Value, ApiError> {
+    pub fn get_credentials(&self, domain: &str) -> Result<ApiReturn, ApiError> {
         let send_api = SendApi::new(
             "get_credentials",
             json!({
@@ -843,7 +851,7 @@ impl RuntimeBot {
     }
 
     /// 获取运行状态
-    pub fn get_status(&self) -> Result<Value, ApiError> {
+    pub fn get_status(&self) -> Result<ApiReturn, ApiError> {
         let send_api = SendApi::new("get_status", json!({}), &generate_key());
 
         let api_rx = self.mpsc_and_send(send_api);
@@ -854,8 +862,32 @@ impl RuntimeBot {
         }
     }
     /// 获取版本信息
-    pub fn get_version_info(&self) -> Result<Value, ApiError> {
+    pub fn get_version_info(&self) -> Result<ApiReturn, ApiError> {
         let send_api = SendApi::new("get_version_info", json!({}), &generate_key());
+        let api_rx = self.mpsc_and_send(send_api);
+        match api_rx.recv().unwrap() {
+            Ok(v) => Ok(v),
+            // 参数错误
+            Err(_) => Err(ApiError::UnknownError()),
+        }
+    }
+
+    /// 点赞，有些服务端会返回点赞失败，不关注返回值的话请使用 send_like()
+    /// # Arguments
+    ///
+    /// `user_id`
+    ///
+    /// `times`: 次数
+    pub fn send_like_return(&self, user_id: i64, times: usize) -> Result<ApiReturn, ApiError> {
+        let send_api = SendApi::new(
+            "send_like",
+            json!({
+                                "user_id":user_id,
+                    "times":times,
+            }),
+            &generate_key(),
+        );
+
         let api_rx = self.mpsc_and_send(send_api);
         match api_rx.recv().unwrap() {
             Ok(v) => Ok(v),
@@ -889,7 +921,7 @@ impl RuntimeBot {
     /// `action`: 拓展 Api 的方法名
     ///
     /// `params`: 参数
-    pub fn send_api_return(&self, action: &str, params: Value) -> Result<Value, ApiError> {
+    pub fn send_api_return(&self, action: &str, params: Value) -> Result<ApiReturn, ApiError> {
         let send_api = SendApi::new(action, params, &generate_key());
 
         let api_rx = self.mpsc_and_send(send_api);
@@ -905,11 +937,11 @@ impl RuntimeBot {
 
 
 impl RuntimeBot {
-    fn mpsc_and_send(&self, send_api: SendApi) -> mpsc::Receiver<Result<Value, Error>> {
+    fn mpsc_and_send(&self, send_api: SendApi) -> mpsc::Receiver<Result<ApiReturn, Error>> {
         #[allow(clippy::type_complexity)]
         let (api_tx, api_rx): (
-            mpsc::Sender<Result<Value, Error>>,
-            mpsc::Receiver<Result<Value, Error>>,
+            mpsc::Sender<Result<ApiReturn, Error>>,
+            mpsc::Receiver<Result<ApiReturn, Error>>,
         ) = mpsc::channel();
         self.api_tx.send((send_api, Some(api_tx))).unwrap();
         api_rx

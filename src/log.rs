@@ -2,10 +2,10 @@
 pub fn set_logger() {
     use anstyle::{Color, Style};
     use chrono::Local;
-    use log::Level;
+    use log::{warn, Level};
     use std::io::Write;
 
-    env_logger::Builder::from_default_env()
+    let init = env_logger::Builder::from_default_env()
         .format(|buf, record| {
             /* let green = Style::new().fg_color(Some(Color::Rgb((85, 170, 127).into()))); */
             let yellow = Style::new().fg_color(Some(Color::Rgb((255, 170, 127).into())));
@@ -43,5 +43,9 @@ pub fn set_logger() {
                 }
             }
         })
-        .init();
+        .try_init();
+
+    if let Err(e) = init {
+        warn!("Kovi init env_logger failed: {}. Very likely you've already started a logger, Or~~~ have you built the bot twice? But don't worry, it's just a warning, www.", e);
+    }
 }

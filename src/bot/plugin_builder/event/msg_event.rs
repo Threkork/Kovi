@@ -285,7 +285,7 @@ impl AllMsgEvent {
         }
     }
 
-    /// 借用 event 的 text
+    /// 借用 event 的 text，只是做了一下self.text.as_deref()的包装
     pub fn borrow_text(&self) -> Option<&str> {
         self.text.as_deref()
     }

@@ -1,34 +1,25 @@
 use super::ApiMpsc;
 use super::{runtimebot::RuntimeBot, Bot};
-use event::{AllMsgEvent, AllNoticeEvent, AllRequestEvent, Event};
+use event::{AllMsgEvent, AllNoticeEvent, AllRequestEvent, OneBotEvent};
+use std::path::PathBuf;
 use std::sync::{Arc, RwLock};
 use std::{net::IpAddr, sync::mpsc};
 
 
 pub mod event;
 
-pub type ListenFn = Arc<dyn Fn(&Event) + Send + Sync + 'static>;
-
-
-#[derive(Clone)]
-pub struct Plugin {
-    pub name: String,
-    pub all_listen: Vec<Listen>,
-}
-
-#[derive(Copy, Clone)]
-pub enum OnType {
-    OnMsg,
-    OnAdminMsg,
-    OnAllNotice,
-    OnAllRequest,
-}
+pub type OneBotEventFn = Arc<dyn Fn(&OneBotEvent) + Send + Sync + 'static>;
+pub type KoviDropEventFn = Arc<dyn Fn() + Send + Sync + 'static>;
 
 #[derive(Clone)]
-pub struct Listen {
-    pub on_type: OnType,
-    pub handler: ListenFn,
+pub enum ListenFn {
+    MsgFn(OneBotEventFn),
+    AdminMsg(OneBotEventFn),
+    AllNotice(OneBotEventFn),
+    AllRequest(OneBotEventFn),
+    KoviEventDrop(KoviDropEventFn),
 }
+
 
 pub struct PluginBuilder {
     pub name: String,
@@ -51,10 +42,7 @@ impl PluginBuilder {
         {
             let bot = bot.clone();
             let mut bot_lock = bot.write().unwrap();
-            bot_lock.plugins.push(Plugin {
-                name: name.clone(),
-                all_listen: Vec::new(),
-            });
+            bot_lock.plugins.insert(name.clone(), Vec::new());
         }
         PluginBuilder {
             name,
@@ -74,119 +62,106 @@ impl PluginBuilder {
             api_tx: self.api_tx.clone(),
         }
     }
+
+    pub fn get_data_path(&self) -> PathBuf {
+        let mut current_dir = std::env::current_dir().unwrap();
+        current_dir.push(format!("data/{}", self.name));
+        current_dir
+    }
 }
 
 impl PluginBuilder {
     /// 注册消息处理函数。
     ///
-    /// 注册一个处理程序（handler），用于处理接收到的消息事件（`AllMsgEvent`）。
-    /// 接收闭包，要求函数接受 `AllMsgEvent` 类型的参数，并返回 `Result` 类型。
-    /// 闭包必须实现 `Send` 、 `Sync`和 `'static`，因为要保证多线程安全以及在确保闭包在整个程序生命周期有效。
+    /// 注册一个处理程序，用于处理接收到的消息事件（`AllMsgEvent`）。
     pub fn on_msg<F>(&mut self, handler: F)
     where
         F: Fn(&AllMsgEvent) + Send + Sync + 'static,
     {
-        let bot = self.bot.clone();
-        for plugin in &mut bot.write().unwrap().plugins {
-            if plugin.name != self.name {
-                continue;
-            }
+        let mut bot = self.bot.write().unwrap();
 
-            plugin.all_listen.push(Listen {
-                on_type: OnType::OnMsg,
-                handler: Arc::new(move |event| {
-                    if let Event::OnMsg(e) = event {
-                        handler(e)
-                    } else {
-                        panic!()
-                    }
-                }),
-            });
-            return;
-        }
+        let all_listen = bot.plugins.get_mut(&self.name).unwrap();
+
+        all_listen.push(ListenFn::MsgFn(Arc::new(move |event| {
+            if let OneBotEvent::OnMsg(e) = event {
+                handler(e)
+            } else {
+                panic!()
+            }
+        })));
     }
 
-    /// 注册消息处理函数。
+    /// 注册管理员消息处理函数。
     ///
-    /// 注册一个处理程序（handler），用于处理接收到的消息事件（`AllMsgEvent`）。
-    /// 接收闭包，要求函数接受 `AllMsgEvent` 类型的参数，并返回 `Result` 类型。
-    /// 闭包必须实现 `Send` 、 `Sync`和 `'static`，因为要保证多线程安全以及在确保闭包在整个程序生命周期有效。
+    /// 注册一个处理程序，用于处理接收到的消息事件（`AllMsgEvent`）。
     pub fn on_admin_msg<F>(&mut self, handler: F)
     where
         F: Fn(&AllMsgEvent) + Send + Sync + 'static,
     {
-        let bot = self.bot.clone();
-        for plugin in &mut bot.write().unwrap().plugins {
-            if plugin.name != self.name {
-                continue;
+        let mut bot = self.bot.write().unwrap();
+
+        let all_listen = bot.plugins.get_mut(&self.name).unwrap();
+
+        all_listen.push(ListenFn::AdminMsg(Arc::new(move |event| {
+            if let OneBotEvent::OnMsg(e) = event {
+                handler(e)
+            } else {
+                panic!()
             }
-            plugin.all_listen.push(Listen {
-                on_type: OnType::OnAdminMsg,
-                handler: Arc::new(move |event| {
-                    if let Event::OnMsg(e) = event {
-                        handler(e)
-                    } else {
-                        panic!()
-                    }
-                }),
-            });
-            return;
-        }
+        })));
     }
 
     /// 注册消息处理函数。
     ///
-    /// 注册一个处理程序（handler），用于处理接收到的消息事件（`AllNoticeEvent`）。
-    /// 接收闭包，要求函数接受 `AllNoticeEvent` 类型的参数，并返回 `Result` 类型。
-    /// 闭包必须实现 `Send` 、 `Sync`和 `'static`，因为要保证多线程安全以及在确保闭包在整个程序生命周期有效。
+    /// 注册一个处理程序，用于处理接收到的消息事件（`AllNoticeEvent`）。
     pub fn on_all_notice<F>(&mut self, handler: F)
     where
         F: Fn(&AllNoticeEvent) + Send + Sync + 'static,
     {
-        let bot = self.bot.clone();
-        for plugin in &mut bot.write().unwrap().plugins {
-            if plugin.name != self.name {
-                continue;
+        let mut bot = self.bot.write().unwrap();
+
+        let all_listen = bot.plugins.get_mut(&self.name).unwrap();
+
+        all_listen.push(ListenFn::AllNotice(Arc::new(move |event| {
+            if let OneBotEvent::OnAllNotice(e) = event {
+                handler(e)
+            } else {
+                panic!()
             }
-            plugin.all_listen.push(Listen {
-                on_type: OnType::OnAllNotice,
-                handler: Arc::new(move |event| {
-                    if let Event::OnAllNotice(e) = event {
-                        handler(e)
-                    } else {
-                        panic!()
-                    }
-                }),
-            });
-            return;
-        }
+        })));
     }
 
     /// 注册消息处理函数。
     ///
-    /// 注册一个处理程序（handler），用于处理接收到的消息事件（`AllRequestEvent`）。
-    /// 接收闭包，要求函数接受 `AllRequestEvent` 类型的参数，并返回 `Result` 类型。
-    /// 闭包必须实现 `Send` 、 `Sync`和 `'static`，因为要保证多线程安全以及在确保闭包在整个程序生命周期有效。
+    /// 注册一个处理程序，用于处理接收到的消息事件（`AllRequestEvent`）。
     pub fn on_all_request<F>(&mut self, handler: F)
     where
         F: Fn(&AllRequestEvent) + Send + Sync + 'static,
     {
-        let bot = self.bot.clone();
-        for plugin in &mut bot.write().unwrap().plugins {
-            if plugin.name != self.name {
-                continue;
+        let mut bot = self.bot.write().unwrap();
+
+        let all_listen = bot.plugins.get_mut(&self.name).unwrap();
+
+        all_listen.push(ListenFn::AllRequest(Arc::new(move |event| {
+            if let OneBotEvent::OnAllRequest(e) = event {
+                handler(e)
+            } else {
+                panic!()
             }
-            plugin.all_listen.push(Listen {
-                on_type: OnType::OnAllRequest,
-                handler: Arc::new(move |event| {
-                    if let Event::OnAllRequest(e) = event {
-                        handler(e)
-                    } else {
-                        panic!()
-                    }
-                }),
-            });
-            return;
-        }
+        })));
+    }
+
+    /// 注册程序结束事件处理函数。
+    ///
+    /// 注册处理程序，用于处理接收到的程序结束事件。
+    pub fn drop<F>(&mut self, handler: F)
+    where
+        F: Fn() + Send + Sync + 'static,
+    {
+        let mut bot = self.bot.write().unwrap();
+
+        let all_listen = bot.plugins.get_mut(&self.name).unwrap();
+
+        all_listen.push(ListenFn::KoviEventDrop(Arc::new(handler)));
     }
 }

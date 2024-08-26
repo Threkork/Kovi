@@ -3,9 +3,11 @@ use dialoguer::theme::ColorfulTheme;
 use dialoguer::Input;
 use futures_util::lock::Mutex;
 use futures_util::{SinkExt, StreamExt};
+use handler::InternalEvent;
 use log::{debug, error};
-use plugin_builder::{Plugin, PluginBuilder};
+use plugin_builder::{ListenFn, PluginBuilder};
 use reqwest::header::HeaderValue;
+use runtimebot::api::ApiReturn;
 use runtimebot::ApiMpsc;
 use serde::{Deserialize, Serialize};
 use serde_json::{self, json, Value};
@@ -15,12 +17,12 @@ use std::future::Future;
 use std::net::Ipv4Addr;
 use std::pin::Pin;
 use std::sync::mpsc::{self, Sender};
-use std::sync::RwLock;
-use std::{fs, net::IpAddr, process::exit, sync::Arc, thread};
-use tokio::runtime::Runtime;
+use std::{fs, net::IpAddr, process::exit, sync::Arc};
 use tokio_tungstenite::connect_async;
 use tokio_tungstenite::tungstenite::client::IntoClientRequest;
 use tokio_tungstenite::tungstenite::Message;
+
+mod run;
 
 #[cfg(feature = "logger")]
 use crate::log::set_logger;
@@ -32,12 +34,11 @@ pub mod runtimebot;
 
 /// 将配置文件写入磁盘
 fn config_file_write_and_return() -> Result<ConfigJson, std::io::Error> {
-    let ip_addr = Input::with_theme(&ColorfulTheme::default())
+    let host = Input::with_theme(&ColorfulTheme::default())
         .with_prompt("What is the IP of the OneBot server?")
         .default(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)))
         .interact_text()
         .unwrap();
-    let host: IpAddr = ip_addr;
 
     let port: u16 = Input::with_theme(&ColorfulTheme::default())
         .with_prompt("What is the port of the OneBot server?")
@@ -94,8 +95,7 @@ type AsyncFn =
 pub struct Bot {
     information: BotInformation,
     main: Vec<BotMain>,
-    /* main: Vec<Arc<dyn Fn(PluginBuilder) + Send + Sync + 'static>>, */
-    plugins: Vec<Plugin>,
+    plugins: HashMap<String, Vec<ListenFn>>,
     life: BotLife,
 }
 
@@ -181,7 +181,7 @@ impl Bot {
                 server: config_json.server,
             },
             main: Vec::new(),
-            plugins: Vec::new(),
+            plugins: HashMap::new(),
             life: BotLife {
                 status: LifeStatus::Initial,
                 //现在的时间
@@ -234,7 +234,7 @@ enum LifeStatus {
     Running,
 }
 
-type ApiTxMap = Arc<Mutex<HashMap<String, Sender<Result<Value, Error>>>>>;
+type ApiTxMap = Arc<Mutex<HashMap<String, Sender<Result<ApiReturn, Error>>>>>;
 
 #[derive(Debug, Serialize, Clone)]
 pub struct SendApi {
@@ -260,107 +260,12 @@ impl SendApi {
 }
 
 impl Bot {
-    /// 运行bot
-    /// **注意此函数会阻塞**
-    pub fn run(self) {
-        let (host, port, access_token) = (
-            self.information.server.host,
-            self.information.server.port,
-            self.information.server.access_token.clone(),
-        );
-
-        let bot = Arc::new(RwLock::new(self));
-
-        let rt = Runtime::new().unwrap();
-
-        rt.block_on(async {
-            //处理连接，从msg_tx返回消息
-            let (msg_tx, msg_rx): (mpsc::Sender<String>, mpsc::Receiver<String>) = mpsc::channel();
-
-            let msg_tx_clone = msg_tx.clone();
-            let access_token_clone = access_token.clone();
-            let connect_task = tokio::spawn(async move {
-                Self::ws_connect(host, port, access_token_clone, msg_tx_clone).await;
-            });
-
-            // 接收插件的api
-            let (api_tx, api_rx): (mpsc::Sender<ApiMpsc>, mpsc::Receiver<ApiMpsc>) =
-                mpsc::channel();
-
-            let access_token_clone = access_token.clone();
-            let send_api_task = tokio::spawn(async move {
-                Self::ws_send_api(host, port, access_token_clone, api_rx).await;
-            });
-
-            // 运行所有的main
-            let main_task_bot = bot.clone();
-            let api_tx_clone = api_tx.clone();
-            let handler_main_task =
-                tokio::spawn(async move { Self::plugin_main(main_task_bot, api_tx_clone).await });
-
-            //处理消息，每个消息事件都会来到这里
-            for msg in msg_rx {
-                let api_tx_clone = api_tx.clone();
-                let bot = bot.clone();
-                thread::spawn(move || {
-                    Self::handler_msg(bot, msg, api_tx_clone);
-                });
-            }
-
-            handler_main_task.await.unwrap();
-            connect_task.await.unwrap();
-            send_api_task.await.unwrap();
-        });
-    }
-
-    async fn plugin_main(bot: Arc<RwLock<Self>>, api_tx: mpsc::Sender<ApiMpsc>) {
-        // 运行所有main()
-        let bot_main_job_clone = bot.clone();
-        let api_tx_main_job_clone = api_tx.clone();
-
-        let mut main_job_vec;
-        {
-            let bot = bot_main_job_clone.read().unwrap();
-            main_job_vec = bot.main.clone();
-        }
-
-        //储存所有main()
-        let mut handler_main_job = Vec::new();
-
-        while let Some(main_job) = main_job_vec.pop() {
-            let bot_main_job_clone = bot_main_job_clone.clone();
-            let api_tx = api_tx_main_job_clone.clone();
-            handler_main_job.push(tokio::spawn(async move {
-                match &main_job {
-                    BotMain::BotSyncMain(sync_main) => {
-                        let plugin_builder = PluginBuilder::new(
-                            sync_main.name.clone(),
-                            bot_main_job_clone.clone(),
-                            api_tx,
-                        );
-                        // 多线程运行 main()
-                        (sync_main.main)(plugin_builder);
-                    }
-                    BotMain::BotAsyncMain(async_main) => {
-                        let plugin_builder = PluginBuilder::new(
-                            async_main.name.clone(),
-                            bot_main_job_clone.clone(),
-                            api_tx,
-                        );
-                        // 异步运行 main()
-                        (async_main.main)(plugin_builder).await;
-                    }
-                }
-            }));
-        }
-        //等待所有main()结束
-        for handler in handler_main_job {
-            handler.await.unwrap();
-        }
-    }
-
-
-    async fn ws_connect(host: IpAddr, port: u16, access_token: String, tx: mpsc::Sender<String>) {
+    async fn ws_connect(
+        host: IpAddr,
+        port: u16,
+        access_token: String,
+        tx: mpsc::Sender<InternalEvent>,
+    ) {
         //增加Authorization头
         let mut request = format!("ws://{}:{}/event", host, port)
             .into_client_request()
@@ -387,7 +292,9 @@ impl Bot {
                     }
 
                     let text = msg.to_text().unwrap();
-                    tx.send(text.to_string()).unwrap();
+                    if let Err(e) = tx.send(InternalEvent::OneBotEvent(text.to_string())) {
+                        debug!("通道关闭：{e}")
+                    }
                 }
                 Err(e) => exit_and_eprintln(e),
             }
@@ -440,28 +347,23 @@ impl Bot {
                             }
 
                             let text = msg.to_text().unwrap();
-                            let return_value: Value = serde_json::from_str(text).unwrap();
+                            let return_value: ApiReturn = serde_json::from_str(text).unwrap();
 
-                            let status = return_value.get("status").unwrap().as_str().unwrap();
-                            let echo = return_value.get("echo").unwrap().as_str().unwrap();
-
-                            if status != "ok" {
+                            if return_value.status != "ok" {
                                 error!("Api return error: {text}")
                             }
                             debug!("{}", text);
 
-                            if echo == "None" {
+                            if return_value.echo == "None" {
                                 return;
                             }
 
 
                             let mut api_tx_map = api_tx_map.lock().await;
 
-                            let api_tx = api_tx_map.remove(echo).unwrap();
-                            if status == "ok" {
-                                api_tx
-                                    .send(Ok(return_value.get("data").unwrap().clone()))
-                                    .unwrap();
+                            let api_tx = api_tx_map.remove(&return_value.echo).unwrap();
+                            if return_value.status == "ok" {
+                                api_tx.send(Ok(return_value)).unwrap();
                             } else {
                                 api_tx.send(Err(Error::UnknownError())).unwrap();
                             }
@@ -525,7 +427,7 @@ macro_rules! build_bot {
         }
     };
 
-    ( $(async $async_plugin:ident),* $(,)* ) => {
+    ( async ( $( $async_plugin:ident ),* ) $(,)* ) => {
         {
             let mut bot = kovi::bot::Bot::build();
 
@@ -539,7 +441,7 @@ macro_rules! build_bot {
         }
     };
 
-    ( $(async $async_plugin:ident),* & $( $sync_plugin:ident ),* $(,)* ) => {
+    ( async ( $( $async_plugin:ident ),* ) & $( $sync_plugin:ident ),* $(,)* ) => {
         {
             let mut bot = kovi::bot::Bot::build();
 
@@ -559,7 +461,7 @@ macro_rules! build_bot {
         }
     };
 
-    ( $( $sync_plugin:ident ),* & $(async $async_plugin:ident),* $(,)* ) => {
+    ( $( $sync_plugin:ident ),* & async ( $( $async_plugin:ident ),* ) $(,)* ) => {
         {
             let mut bot = kovi::bot::Bot::build();
 

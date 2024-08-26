@@ -1,4 +1,4 @@
-**English** | [简体中文](https://github.com/Threkork/Kovi/blob/main/README_zh.md)
+**English** | [简体中文](https://threkork.github.io/kovi-doc/)
 
 # Kovi
 
