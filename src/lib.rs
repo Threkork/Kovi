@@ -8,11 +8,12 @@
 //! 中文文档或更多文档请查看[Github-Kovi](https://github.com/Threkork/Kovi) 和 [Kovi-doc](https://threkork.github.io/kovi-doc/)
 
 #[cfg(feature = "logger")]
-mod log;
+mod logger;
 
 pub use bot::message::Message;
 pub use bot::plugin_builder::PluginBuilder;
 pub use kovi_macros::plugin;
+pub use log;
 pub use tokio;
 
 /// Everything about bots is inside

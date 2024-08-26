@@ -25,7 +25,7 @@ use tokio_tungstenite::tungstenite::Message;
 mod run;
 
 #[cfg(feature = "logger")]
-use crate::log::set_logger;
+use crate::logger::set_logger;
 
 mod handler;
 pub mod message;
