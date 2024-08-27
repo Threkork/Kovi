@@ -22,7 +22,10 @@ pub use bot::message::Message;
 pub use bot::plugin_builder::PluginBuilder;
 pub use kovi_macros::plugin;
 
+pub use chrono;
+pub use futures_util;
 pub use log;
+pub use regex;
 pub use serde;
 pub use serde_json;
 pub use tokio;
