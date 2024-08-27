@@ -1,23 +1,58 @@
 use super::ApiMpsc;
 use super::{runtimebot::RuntimeBot, Bot};
-use event::{AllMsgEvent, AllNoticeEvent, AllRequestEvent, OneBotEvent};
+use event::{AllMsgEvent, AllNoticeEvent, AllRequestEvent};
+use std::future::Future;
 use std::path::PathBuf;
+use std::pin::Pin;
 use std::sync::{Arc, RwLock};
 use std::{net::IpAddr, sync::mpsc};
 
 
 pub mod event;
 
-pub type OneBotEventFn = Arc<dyn Fn(&OneBotEvent) + Send + Sync + 'static>;
+pub type MsgFn = Arc<dyn Fn(&AllMsgEvent) + Send + Sync + 'static>;
+pub type MsgAsyncFn = Arc<
+    dyn Fn(Arc<AllMsgEvent>) -> Pin<Box<dyn Future<Output = ()> + Send>> + Send + Sync + 'static,
+>;
+
+pub type AdminMsgFn = Arc<dyn Fn(&AllMsgEvent) + Send + Sync + 'static>;
+pub type AdminMsgAsyncFn = Arc<
+    dyn Fn(Arc<AllMsgEvent>) -> Pin<Box<dyn Future<Output = ()> + Send>> + Send + Sync + 'static,
+>;
+
+pub type AllNoticeFn = Arc<dyn Fn(&AllNoticeEvent) + Send + Sync + 'static>;
+pub type AllNoticeAsyncFn = Arc<
+    dyn Fn(Arc<AllNoticeEvent>) -> Pin<Box<dyn Future<Output = ()> + Send>> + Send + Sync + 'static,
+>;
+
+pub type AllRequestFn = Arc<dyn Fn(&AllRequestEvent) + Send + Sync + 'static>;
+pub type AllRequestAsyncFn = Arc<
+    dyn Fn(Arc<AllRequestEvent>) -> Pin<Box<dyn Future<Output = ()> + Send>>
+        + Send
+        + Sync
+        + 'static,
+>;
+
 pub type KoviDropEventFn = Arc<dyn Fn() + Send + Sync + 'static>;
+pub type KoviDropEventAsyncFn =
+    Arc<dyn Fn() -> Pin<Box<dyn Future<Output = ()> + Send>> + Send + Sync + 'static>;
 
 #[derive(Clone)]
 pub enum ListenFn {
-    MsgFn(OneBotEventFn),
-    AdminMsg(OneBotEventFn),
-    AllNotice(OneBotEventFn),
-    AllRequest(OneBotEventFn),
-    KoviEventDrop(KoviDropEventFn),
+    MsgFn(MsgFn),
+    MsgAsyncFn(MsgAsyncFn),
+
+    AdminMsgFn(AdminMsgFn),
+    AdminMsgAsyncFn(AdminMsgAsyncFn),
+
+    AllNoticeFn(AllNoticeFn),
+    AllNoticeAsyncFn(AllNoticeAsyncFn),
+
+    AllRequestFn(AllRequestFn),
+    AllRequestAsyncFn(AllRequestAsyncFn),
+
+    KoviEventDropFn(KoviDropEventFn),
+    KoviEventDropAsyncFn(KoviDropEventAsyncFn),
 }
 
 
@@ -82,12 +117,23 @@ impl PluginBuilder {
 
         let all_listen = bot.plugins.get_mut(&self.name).unwrap();
 
-        all_listen.push(ListenFn::MsgFn(Arc::new(move |event| {
-            if let OneBotEvent::OnMsg(e) = event {
-                handler(e)
-            } else {
-                panic!()
-            }
+        all_listen.push(ListenFn::MsgFn(Arc::new(move |e| handler(e))));
+    }
+
+    /// 注册异步消息处理函数。
+    ///
+    /// 注册一个处理程序，用于处理接收到的消息事件（`AllMsgEvent`）。
+    pub fn on_msg_async<F, Fut>(&mut self, handler: F)
+    where
+        F: Fn(Pin<Arc<AllMsgEvent>>) -> Fut + Send + Sync + 'static,
+        Fut: Future<Output = ()> + Send + 'static,
+    {
+        let mut bot = self.bot.write().unwrap();
+
+        let all_listen = bot.plugins.get_mut(&self.name).unwrap();
+
+        all_listen.push(ListenFn::MsgAsyncFn(Arc::new(move |event| {
+            Box::pin(handler(Pin::new(event)))
         })));
     }
 
@@ -102,12 +148,23 @@ impl PluginBuilder {
 
         let all_listen = bot.plugins.get_mut(&self.name).unwrap();
 
-        all_listen.push(ListenFn::AdminMsg(Arc::new(move |event| {
-            if let OneBotEvent::OnMsg(e) = event {
-                handler(e)
-            } else {
-                panic!()
-            }
+        all_listen.push(ListenFn::AdminMsgFn(Arc::new(move |e| handler(e))));
+    }
+
+    /// 注册异步管理员消息处理函数。
+    ///
+    /// 注册一个处理程序，用于处理接收到的消息事件（`AllMsgEvent`）。
+    pub fn on_admin_msg_async<F, Fut>(&mut self, handler: F)
+    where
+        F: Fn(Pin<Arc<AllMsgEvent>>) -> Fut + Send + Sync + 'static,
+        Fut: Future<Output = ()> + Send + 'static,
+    {
+        let mut bot = self.bot.write().unwrap();
+
+        let all_listen = bot.plugins.get_mut(&self.name).unwrap();
+
+        all_listen.push(ListenFn::MsgAsyncFn(Arc::new(move |event| {
+            Box::pin(handler(Pin::new(event)))
         })));
     }
 
@@ -122,12 +179,23 @@ impl PluginBuilder {
 
         let all_listen = bot.plugins.get_mut(&self.name).unwrap();
 
-        all_listen.push(ListenFn::AllNotice(Arc::new(move |event| {
-            if let OneBotEvent::OnAllNotice(e) = event {
-                handler(e)
-            } else {
-                panic!()
-            }
+        all_listen.push(ListenFn::AllNoticeFn(Arc::new(move |e| handler(e))));
+    }
+
+    /// 注册异步消息处理函数。
+    ///
+    /// 注册一个处理程序，用于处理接收到的消息事件（`AllNoticeEvent`）。
+    pub fn on_all_notice_async<F, Fut>(&mut self, handler: F)
+    where
+        F: Fn(Pin<Arc<AllNoticeEvent>>) -> Fut + Send + Sync + 'static,
+        Fut: Future<Output = ()> + Send + 'static,
+    {
+        let mut bot = self.bot.write().unwrap();
+
+        let all_listen = bot.plugins.get_mut(&self.name).unwrap();
+
+        all_listen.push(ListenFn::AllNoticeAsyncFn(Arc::new(move |event| {
+            Box::pin(handler(Pin::new(event)))
         })));
     }
 
@@ -142,12 +210,23 @@ impl PluginBuilder {
 
         let all_listen = bot.plugins.get_mut(&self.name).unwrap();
 
-        all_listen.push(ListenFn::AllRequest(Arc::new(move |event| {
-            if let OneBotEvent::OnAllRequest(e) = event {
-                handler(e)
-            } else {
-                panic!()
-            }
+        all_listen.push(ListenFn::AllRequestFn(Arc::new(move |e| handler(e))));
+    }
+
+    /// 注册异步消息处理函数。
+    ///
+    /// 注册一个处理程序，用于处理接收到的消息事件（`AllRequestEvent`）。
+    pub fn on_all_request_async<F, Fut>(&mut self, handler: F)
+    where
+        F: Fn(Pin<Arc<AllRequestEvent>>) -> Fut + Send + Sync + 'static,
+        Fut: Future<Output = ()> + Send + 'static,
+    {
+        let mut bot = self.bot.write().unwrap();
+
+        let all_listen = bot.plugins.get_mut(&self.name).unwrap();
+
+        all_listen.push(ListenFn::AllRequestAsyncFn(Arc::new(move |event| {
+            Box::pin(handler(Pin::new(event)))
         })));
     }
 
@@ -162,6 +241,23 @@ impl PluginBuilder {
 
         let all_listen = bot.plugins.get_mut(&self.name).unwrap();
 
-        all_listen.push(ListenFn::KoviEventDrop(Arc::new(handler)));
+        all_listen.push(ListenFn::KoviEventDropFn(Arc::new(handler)));
+    }
+
+    /// 注册异步程序结束事件处理函数。
+    ///
+    /// 注册处理程序，用于处理接收到的程序结束事件。
+    pub fn drop_async<F, Fut>(&mut self, handler: F)
+    where
+        F: Fn() -> Fut + Send + Sync + 'static,
+        Fut: Future<Output = ()> + Send + 'static,
+    {
+        let mut bot = self.bot.write().unwrap();
+
+        let all_listen = bot.plugins.get_mut(&self.name).unwrap();
+
+        all_listen.push(ListenFn::KoviEventDropAsyncFn(Arc::new(move || {
+            Box::pin(handler())
+        })));
     }
 }

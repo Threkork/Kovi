@@ -1,8 +1,5 @@
 use super::RuntimeBot;
-use crate::{
-    bot::{message::Message, SendApi},
-    error::{ApiError, Error},
-};
+use crate::bot::{message::Message, SendApi};
 use log::info;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -26,11 +23,21 @@ pub struct ApiReturn {
     pub echo: String,
 }
 
+impl std::fmt::Display for ApiReturn {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "status: {}, retcode: {}, data: {}, echo: {}",
+            self.status, self.retcode, self.data, self.echo
+        )
+    }
+}
+
 
 /// Kovi提供解析过的返回值的api
 impl RuntimeBot {
     ///发送群组消息, 并返回消息ID
-    pub fn send_group_msg_return<T>(&self, group_id: i64, msg: T) -> Result<i32, ApiError>
+    pub fn send_group_msg_return<T>(&self, group_id: i64, msg: T) -> Result<i32, ApiReturn>
     where
         Message: From<T>,
         T: Serialize,
@@ -52,13 +59,13 @@ impl RuntimeBot {
         let api_rx = self.mpsc_and_send(send_api);
         match api_rx.recv().unwrap() {
             Ok(v) => Ok(v.data.get("message_id").unwrap().as_i64().unwrap() as i32),
-            // 参数错误
-            Err(_) => Err(ApiError::UnknownError()),
+
+            Err(v) => Err(v),
         }
     }
 
     ///发送私聊消息, 并返回消息ID
-    pub fn send_private_msg_return<T>(&self, user_id: i64, msg: T) -> Result<i32, ApiError>
+    pub fn send_private_msg_return<T>(&self, user_id: i64, msg: T) -> Result<i32, ApiReturn>
     where
         Message: From<T>,
         T: Serialize,
@@ -78,124 +85,29 @@ impl RuntimeBot {
         let api_rx = self.mpsc_and_send(send_api);
         match api_rx.recv().unwrap() {
             Ok(v) => Ok(v.data.get("message_id").unwrap().as_i64().unwrap() as i32),
-            // 参数错误
-            Err(_) => Err(ApiError::UnknownError()),
+
+            Err(v) => Err(v),
         }
     }
     /// 是否能发送图片
-    pub fn can_send_image(&self) -> Result<bool, ApiError> {
+    pub fn can_send_image(&self) -> Result<bool, ApiReturn> {
         let send_api = SendApi::new("can_send_image", json!({}), &generate_key());
 
         let api_rx = self.mpsc_and_send(send_api);
         match api_rx.recv().unwrap() {
             Ok(v) => Ok(v.data.get("yes").unwrap().as_bool().unwrap()),
-            // 参数错误
-            Err(_) => Err(ApiError::UnknownError()),
+
+            Err(v) => Err(v),
         }
     }
     /// 是否能发送语音
-    pub fn can_send_record(&self) -> Result<bool, ApiError> {
+    pub fn can_send_record(&self) -> Result<bool, ApiReturn> {
         let send_api = SendApi::new("can_send_record", json!({}), &generate_key());
         let api_rx = self.mpsc_and_send(send_api);
         match api_rx.recv().unwrap() {
             Ok(v) => Ok(v.data.get("yes").unwrap().as_bool().unwrap()),
-            // 参数错误
-            Err(_) => Err(ApiError::UnknownError()),
-        }
-    }
-    /// 获取 Cookies
-    ///
-    /// # Arguments
-    ///
-    /// `domain`: 需要获取 cookies 的域名
-    pub fn get_cookies(&self, domain: &str) -> Result<String, ApiError> {
-        let send_api = SendApi::new(
-            "get_cookies",
-            json!({
-                "domain":domain,
-            }),
-            &generate_key(),
-        );
-        let api_rx = self.mpsc_and_send(send_api);
-        match api_rx.recv().unwrap() {
-            Ok(v) => Ok(v.data.get("cookies").unwrap().to_string()),
-            // 参数错误
-            Err(_) => Err(ApiError::ParamsError(format!(
-                "Check the incoming parameter: domain: '{}'",
-                domain
-            ))),
-        }
-    }
-    /// 获取 CSRF Token
-    pub fn get_csrf_token(&self) -> Result<i32, ApiError> {
-        let send_api = SendApi::new("get_csrf_token", json!({}), &generate_key());
 
-        let api_rx = self.mpsc_and_send(send_api);
-        match api_rx.recv().unwrap() {
-            Ok(v) => Ok(v.data.get("token").unwrap().as_i64().unwrap() as i32),
-            // 参数错误
-            Err(_) => Err(ApiError::UnknownError()),
-        }
-    }
-    /// 获取语音
-    ///
-    /// # Arguments
-    ///
-    /// `file`: 收到的语音文件名（消息段的 file 参数），如 `0B38145AA44505000B38145AA4450500.silk`
-    ///
-    /// `out_format`: 要转换到的格式，目前支持 `mp3`、`amr`、`wma`、`m4a`、`spx`、`ogg`、`wav`、`flac`
-    pub fn get_record(&self, file: &str, out_format: &str) -> Result<String, ApiError> {
-        let send_api = SendApi::new(
-            "get_record",
-            json!({
-                "file":file,
-                    "out_format":out_format
-            }),
-            &generate_key(),
-        );
-        let api_rx = self.mpsc_and_send(send_api);
-        match api_rx.recv().unwrap() {
-            Ok(v) => match v.data.get("file") {
-                Some(v) => Ok(v.to_string()),
-                None => Err(ApiError::ParamsError(format!(
-                    "Check the incoming parameter: file: '{}', out_format: '{}'",
-                    file, out_format
-                ))),
-            },
-            // 参数错误
-            Err(_) => Err(ApiError::ParamsError(format!(
-                "Check the incoming parameter: file: '{}', out_format: '{}'",
-                file, out_format
-            ))),
-        }
-    }
-    /// 获取图片
-    ///
-    /// # Arguments
-    ///
-    /// `file`: 收到的图片文件名（消息段的 file 参数），如 `6B4DE3DFD1BD271E3297859D41C530F5.jpg`
-    pub fn get_image(&self, file: &str) -> Result<String, ApiError> {
-        let send_api = SendApi::new(
-            "get_image",
-            json!({
-                "file":file,
-            }),
-            &generate_key(),
-        );
-        let api_rx = self.mpsc_and_send(send_api);
-        match api_rx.recv().unwrap() {
-            Ok(v) => match v.data.get("file") {
-                Some(v) => Ok(v.to_string()),
-                None => Err(ApiError::ParamsError(format!(
-                    "Check the incoming parameter: file: '{}'",
-                    file
-                ))),
-            },
-            // 参数错误
-            Err(_) => Err(ApiError::ParamsError(format!(
-                "Check the incoming parameter: file: '{}'",
-                file
-            ))),
+            Err(v) => Err(v),
         }
     }
 }
@@ -599,7 +511,7 @@ impl RuntimeBot {
     /// # Arguments
     ///
     /// `message_id`: 消息ID
-    pub fn get_msg(&self, message_id: i32) -> Result<ApiReturn, ApiError> {
+    pub fn get_msg(&self, message_id: i32) -> Result<ApiReturn, ApiReturn> {
         let send_api = SendApi::new(
             "get_msg",
             json!({
@@ -611,18 +523,15 @@ impl RuntimeBot {
         let api_rx = self.mpsc_and_send(send_api);
         match api_rx.recv().unwrap() {
             Ok(v) => Ok(v),
-            // 参数错误
-            Err(_) => Err(ApiError::ParamsError(format!(
-                "Check the incoming parameter: message_id: '{}'",
-                message_id
-            ))),
+
+            Err(v) => Err(v),
         }
     }
     /// 获取合并转发消息
     /// # Arguments
     ///
     /// `id`: 合并转发 ID
-    pub fn get_forward_msg(&self, id: &str) -> Result<ApiReturn, ApiError> {
+    pub fn get_forward_msg(&self, id: &str) -> Result<ApiReturn, ApiReturn> {
         let send_api = SendApi::new(
             "get_forward_msg",
             json!({
@@ -634,22 +543,19 @@ impl RuntimeBot {
         let api_rx = self.mpsc_and_send(send_api);
         match api_rx.recv().unwrap() {
             Ok(v) => Ok(v),
-            // 参数错误
-            Err(_) => Err(ApiError::ParamsError(format!(
-                "Check the incoming parameter: id: '{}'",
-                id
-            ))),
+
+            Err(v) => Err(v),
         }
     }
     /// 获取获取登录号信息
-    pub fn get_login_info(&self) -> Result<ApiReturn, ApiError> {
+    pub fn get_login_info(&self) -> Result<ApiReturn, ApiReturn> {
         let send_api = SendApi::new("get_login_info", json!({}), &generate_key());
 
         let api_rx = self.mpsc_and_send(send_api);
         match api_rx.recv().unwrap() {
             Ok(v) => Ok(v),
-            // 参数错误
-            Err(_) => Err(ApiError::UnknownError()),
+
+            Err(v) => Err(v),
         }
     }
     /// 获取获取陌生人信息
@@ -658,7 +564,7 @@ impl RuntimeBot {
     /// `user_id`
     ///
     /// `no_cache`: 是否不使用缓存（使用缓存可能更新不及时，但响应更快）
-    pub fn get_stranger_info(&self, user_id: i64, no_cache: bool) -> Result<ApiReturn, ApiError> {
+    pub fn get_stranger_info(&self, user_id: i64, no_cache: bool) -> Result<ApiReturn, ApiReturn> {
         let send_api = SendApi::new(
             "get_stranger_info",
             json!({
@@ -671,22 +577,19 @@ impl RuntimeBot {
         let api_rx = self.mpsc_and_send(send_api);
         match api_rx.recv().unwrap() {
             Ok(v) => Ok(v),
-            // 参数错误
-            Err(_) => Err(ApiError::ParamsError(format!(
-                "Check the incoming parameter: user_id: '{}', no_cache: '{}'",
-                user_id, no_cache
-            ))),
+
+            Err(v) => Err(v),
         }
     }
     /// 获取好友列表
-    pub fn get_friend_list(&self) -> Result<ApiReturn, ApiError> {
+    pub fn get_friend_list(&self) -> Result<ApiReturn, ApiReturn> {
         let send_api = SendApi::new("get_friend_list", json!({}), &generate_key());
 
         let api_rx = self.mpsc_and_send(send_api);
         match api_rx.recv().unwrap() {
             Ok(v) => Ok(v),
-            // 参数错误
-            Err(_) => Err(ApiError::UnknownError()),
+
+            Err(v) => Err(v),
         }
     }
     /// 获取群信息
@@ -695,7 +598,7 @@ impl RuntimeBot {
     /// `group_id`
     ///
     /// `no_cache`: 是否不使用缓存（使用缓存可能更新不及时，但响应更快）
-    pub fn get_group_info(&self, group_id: i64, no_cache: bool) -> Result<ApiReturn, ApiError> {
+    pub fn get_group_info(&self, group_id: i64, no_cache: bool) -> Result<ApiReturn, ApiReturn> {
         let send_api = SendApi::new(
             "get_group_info",
             json!({
@@ -708,22 +611,19 @@ impl RuntimeBot {
         let api_rx = self.mpsc_and_send(send_api);
         match api_rx.recv().unwrap() {
             Ok(v) => Ok(v),
-            // 参数错误
-            Err(_) => Err(ApiError::ParamsError(format!(
-                "Check the incoming parameter: group_id: '{}', no_cache: '{}'",
-                group_id, no_cache
-            ))),
+
+            Err(v) => Err(v),
         }
     }
     /// 获取群列表
-    pub fn get_group_list(&self) -> Result<ApiReturn, ApiError> {
+    pub fn get_group_list(&self) -> Result<ApiReturn, ApiReturn> {
         let send_api = SendApi::new("get_group_list", json!({}), &generate_key());
 
         let api_rx = self.mpsc_and_send(send_api);
         match api_rx.recv().unwrap() {
             Ok(v) => Ok(v),
-            // 参数错误
-            Err(_) => Err(ApiError::UnknownError()),
+
+            Err(v) => Err(v),
         }
     }
     ///获取群成员信息
@@ -739,7 +639,7 @@ impl RuntimeBot {
         group_id: i64,
         user_id: i64,
         no_cache: bool,
-    ) -> Result<ApiReturn, ApiError> {
+    ) -> Result<ApiReturn, ApiReturn> {
         let send_api = SendApi::new(
             "get_group_member_info",
             json!({
@@ -753,11 +653,8 @@ impl RuntimeBot {
         let api_rx = self.mpsc_and_send(send_api);
         match api_rx.recv().unwrap() {
             Ok(v) => Ok(v),
-            // 参数错误
-            Err(_) => Err(ApiError::ParamsError(format!(
-                "Check the incoming parameter: group_id: '{}',user_id: '{}', no_cache: '{}'",
-                group_id, user_id, no_cache
-            ))),
+
+            Err(v) => Err(v),
         }
     }
     /// 获取群成员列表
@@ -765,7 +662,7 @@ impl RuntimeBot {
     /// # Arguments
     ///
     /// `group_id`
-    pub fn get_group_member_list(&self, group_id: i64) -> Result<ApiReturn, ApiError> {
+    pub fn get_group_member_list(&self, group_id: i64) -> Result<ApiReturn, ApiReturn> {
         let send_api = SendApi::new(
             "get_group_member_list",
             json!({
@@ -777,11 +674,8 @@ impl RuntimeBot {
         let api_rx = self.mpsc_and_send(send_api);
         match api_rx.recv().unwrap() {
             Ok(v) => Ok(v),
-            // 参数错误
-            Err(_) => Err(ApiError::ParamsError(format!(
-                "Check the incoming parameter: group_id: '{}'",
-                group_id
-            ))),
+
+            Err(v) => Err(v),
         }
     }
 
@@ -795,7 +689,7 @@ impl RuntimeBot {
         &self,
         group_id: i64,
         honor_type: HonorType,
-    ) -> Result<ApiReturn, ApiError> {
+    ) -> Result<ApiReturn, ApiReturn> {
         let honor_type = match honor_type {
             HonorType::All => "all",
             HonorType::Talkative => "talkative",
@@ -817,11 +711,8 @@ impl RuntimeBot {
         let api_rx = self.mpsc_and_send(send_api);
         match api_rx.recv().unwrap() {
             Ok(v) => Ok(v),
-            // 参数错误
-            Err(_) => Err(ApiError::ParamsError(format!(
-                "Check the incoming parameter: group_id: '{}', honor_type: '{}'",
-                group_id, honor_type
-            ))),
+
+            Err(v) => Err(v),
         }
     }
 
@@ -830,7 +721,7 @@ impl RuntimeBot {
     /// # Arguments
     ///
     /// `domain`: 需要获取 cookies 的域名
-    pub fn get_credentials(&self, domain: &str) -> Result<ApiReturn, ApiError> {
+    pub fn get_credentials(&self, domain: &str) -> Result<ApiReturn, ApiReturn> {
         let send_api = SendApi::new(
             "get_credentials",
             json!({
@@ -842,33 +733,104 @@ impl RuntimeBot {
         let api_rx = self.mpsc_and_send(send_api);
         match api_rx.recv().unwrap() {
             Ok(v) => Ok(v),
-            // 参数错误
-            Err(_) => Err(ApiError::ParamsError(format!(
-                "Check the incoming parameter: domain: '{}'",
-                domain
-            ))),
+
+            Err(v) => Err(v),
         }
     }
 
     /// 获取运行状态
-    pub fn get_status(&self) -> Result<ApiReturn, ApiError> {
+    pub fn get_status(&self) -> Result<ApiReturn, ApiReturn> {
         let send_api = SendApi::new("get_status", json!({}), &generate_key());
 
         let api_rx = self.mpsc_and_send(send_api);
         match api_rx.recv().unwrap() {
             Ok(v) => Ok(v),
-            // 参数错误
-            Err(_) => Err(ApiError::UnknownError()),
+
+            Err(v) => Err(v),
         }
     }
     /// 获取版本信息
-    pub fn get_version_info(&self) -> Result<ApiReturn, ApiError> {
+    pub fn get_version_info(&self) -> Result<ApiReturn, ApiReturn> {
         let send_api = SendApi::new("get_version_info", json!({}), &generate_key());
         let api_rx = self.mpsc_and_send(send_api);
         match api_rx.recv().unwrap() {
             Ok(v) => Ok(v),
-            // 参数错误
-            Err(_) => Err(ApiError::UnknownError()),
+
+            Err(v) => Err(v),
+        }
+    }
+    /// 获取 Cookies
+    ///
+    /// # Arguments
+    ///
+    /// `domain`: 需要获取 cookies 的域名
+    pub fn get_cookies(&self, domain: &str) -> Result<ApiReturn, ApiReturn> {
+        let send_api = SendApi::new(
+            "get_cookies",
+            json!({
+                "domain":domain,
+            }),
+            &generate_key(),
+        );
+        let api_rx = self.mpsc_and_send(send_api);
+        match api_rx.recv().unwrap() {
+            Ok(v) => Ok(v),
+
+            Err(v) => Err(v),
+        }
+    }
+    /// 获取 CSRF Token
+    pub fn get_csrf_token(&self) -> Result<ApiReturn, ApiReturn> {
+        let send_api = SendApi::new("get_csrf_token", json!({}), &generate_key());
+
+        let api_rx = self.mpsc_and_send(send_api);
+        match api_rx.recv().unwrap() {
+            Ok(v) => Ok(v),
+
+            Err(v) => Err(v),
+        }
+    }
+    /// 获取语音
+    ///
+    /// # Arguments
+    ///
+    /// `file`: 收到的语音文件名（消息段的 file 参数），如 `0B38145AA44505000B38145AA4450500.silk`
+    ///
+    /// `out_format`: 要转换到的格式，目前支持 `mp3`、`amr`、`wma`、`m4a`、`spx`、`ogg`、`wav`、`flac`
+    pub fn get_record(&self, file: &str, out_format: &str) -> Result<ApiReturn, ApiReturn> {
+        let send_api = SendApi::new(
+            "get_record",
+            json!({
+                "file":file,
+                    "out_format":out_format
+            }),
+            &generate_key(),
+        );
+        let api_rx = self.mpsc_and_send(send_api);
+        match api_rx.recv().unwrap() {
+            Ok(v) => Ok(v),
+
+            Err(v) => Err(v),
+        }
+    }
+    /// 获取图片
+    ///
+    /// # Arguments
+    ///
+    /// `file`: 收到的图片文件名（消息段的 file 参数），如 `6B4DE3DFD1BD271E3297859D41C530F5.jpg`
+    pub fn get_image(&self, file: &str) -> Result<ApiReturn, ApiReturn> {
+        let send_api = SendApi::new(
+            "get_image",
+            json!({
+                "file":file,
+            }),
+            &generate_key(),
+        );
+        let api_rx = self.mpsc_and_send(send_api);
+        match api_rx.recv().unwrap() {
+            Ok(v) => Ok(v),
+
+            Err(v) => Err(v),
         }
     }
 
@@ -878,7 +840,7 @@ impl RuntimeBot {
     /// `user_id`
     ///
     /// `times`: 次数
-    pub fn send_like_return(&self, user_id: i64, times: usize) -> Result<ApiReturn, ApiError> {
+    pub fn send_like_return(&self, user_id: i64, times: usize) -> Result<ApiReturn, ApiReturn> {
         let send_api = SendApi::new(
             "send_like",
             json!({
@@ -891,8 +853,8 @@ impl RuntimeBot {
         let api_rx = self.mpsc_and_send(send_api);
         match api_rx.recv().unwrap() {
             Ok(v) => Ok(v),
-            // 参数错误
-            Err(_) => Err(ApiError::UnknownError()),
+
+            Err(v) => Err(v),
         }
     }
 }
@@ -921,27 +883,25 @@ impl RuntimeBot {
     /// `action`: 拓展 Api 的方法名
     ///
     /// `params`: 参数
-    pub fn send_api_return(&self, action: &str, params: Value) -> Result<ApiReturn, ApiError> {
+    pub fn send_api_return(&self, action: &str, params: Value) -> Result<ApiReturn, ApiReturn> {
         let send_api = SendApi::new(action, params, &generate_key());
 
         let api_rx = self.mpsc_and_send(send_api);
         match api_rx.recv().unwrap() {
             Ok(v) => Ok(v),
-            // 参数错误
-            Err(_) => Err(ApiError::ParamsError(
-                "Check the incoming parameter".to_string(),
-            )),
+
+            Err(v) => Err(v),
         }
     }
 }
 
 
 impl RuntimeBot {
-    fn mpsc_and_send(&self, send_api: SendApi) -> mpsc::Receiver<Result<ApiReturn, Error>> {
+    fn mpsc_and_send(&self, send_api: SendApi) -> mpsc::Receiver<Result<ApiReturn, ApiReturn>> {
         #[allow(clippy::type_complexity)]
         let (api_tx, api_rx): (
-            mpsc::Sender<Result<ApiReturn, Error>>,
-            mpsc::Receiver<Result<ApiReturn, Error>>,
+            mpsc::Sender<Result<ApiReturn, ApiReturn>>,
+            mpsc::Receiver<Result<ApiReturn, ApiReturn>>,
         ) = mpsc::channel();
         self.api_tx.send((send_api, Some(api_tx))).unwrap();
         api_rx

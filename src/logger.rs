@@ -46,6 +46,6 @@ pub fn set_logger() {
         .try_init();
 
     if let Err(e) = init {
-        warn!("Kovi init env_logger failed: {}. Very likely you've already started a logger, Or~~~ have you built the bot twice? But don't worry, it's just a warning, www.", e);
+        warn!("Kovi init env_logger failed: {}. Very likely you've already started a logger, have you built the bot twice? But don't worry, it's just a warning.", e);
     }
 }

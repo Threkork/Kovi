@@ -9,15 +9,6 @@ pub enum Error {
     UnknownError(),
 }
 
-#[derive(Error, Debug)]
-pub enum ApiError {
-    #[error("Check the incoming parameter: {0}")]
-    ParamsError(String),
-
-    #[error("Error, and no one knows why something went wrong")]
-    UnknownError(),
-}
-
 
 #[derive(Error, Debug)]
 pub enum PluginBuilderError {

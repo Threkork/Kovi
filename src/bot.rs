@@ -1,4 +1,3 @@
-use crate::error::Error;
 use dialoguer::theme::ColorfulTheme;
 use dialoguer::Input;
 use futures_util::lock::Mutex;
@@ -7,7 +6,7 @@ use handler::InternalEvent;
 use log::{debug, error};
 use plugin_builder::{ListenFn, PluginBuilder};
 use reqwest::header::HeaderValue;
-use runtimebot::api::ApiReturn;
+use runtimebot::onebot_api::ApiReturn;
 use runtimebot::ApiMpsc;
 use serde::{Deserialize, Serialize};
 use serde_json::{self, json, Value};
@@ -234,7 +233,7 @@ enum LifeStatus {
     Running,
 }
 
-type ApiTxMap = Arc<Mutex<HashMap<String, Sender<Result<ApiReturn, Error>>>>>;
+type ApiTxMap = Arc<Mutex<HashMap<String, Sender<Result<ApiReturn, ApiReturn>>>>>;
 
 #[derive(Debug, Serialize, Clone)]
 pub struct SendApi {
@@ -264,7 +263,7 @@ impl Bot {
         host: IpAddr,
         port: u16,
         access_token: String,
-        tx: mpsc::Sender<InternalEvent>,
+        event_tx: mpsc::Sender<InternalEvent>,
     ) {
         //增加Authorization头
         let mut request = format!("ws://{}:{}/event", host, port)
@@ -280,23 +279,30 @@ impl Bot {
 
         let (ws_stream, _) = match connect_async(request).await {
             Ok(v) => v,
-            Err(e) => exit_and_eprintln(e),
+            Err(e) => {
+                exit_and_eprintln(e, event_tx);
+                panic!("connect error")
+            }
         };
 
         let (_, read) = ws_stream.split();
-        read.for_each(|msg| async {
-            match msg {
-                Ok(msg) => {
-                    if !msg.is_text() {
-                        return;
-                    }
+        read.for_each(|msg| {
+            let event_tx = event_tx.clone();
+            async {
+                match msg {
+                    Ok(msg) => {
+                        if !msg.is_text() {
+                            return;
+                        }
 
-                    let text = msg.to_text().unwrap();
-                    if let Err(e) = tx.send(InternalEvent::OneBotEvent(text.to_string())) {
-                        debug!("通道关闭：{e}")
+                        let text = msg.to_text().unwrap();
+                        if let Err(e) = event_tx.send(InternalEvent::OneBotEvent(text.to_string()))
+                        {
+                            debug!("通道关闭：{e}")
+                        }
                     }
+                    Err(e) => exit_and_eprintln(e, event_tx),
                 }
-                Err(e) => exit_and_eprintln(e),
             }
         })
         .await;
@@ -306,7 +312,8 @@ impl Bot {
         host: IpAddr,
         port: u16,
         access_token: String,
-        rx: mpsc::Receiver<ApiMpsc>,
+        api_rx: mpsc::Receiver<ApiMpsc>,
+        event_tx: mpsc::Sender<InternalEvent>,
     ) {
         //增加Authorization头
         let mut request = format!("ws://{}:{}/api", host, port)
@@ -323,7 +330,10 @@ impl Bot {
 
         let (ws_stream, _) = match connect_async(request).await {
             Ok(v) => v,
-            Err(e) => exit_and_eprintln(e),
+            Err(e) => {
+                exit_and_eprintln(e, event_tx);
+                panic!("connect error")
+            }
         };
 
         let (write, read) = ws_stream.split();
@@ -334,41 +344,48 @@ impl Bot {
         //读
         tokio::spawn({
             let api_tx_map = Arc::clone(&api_tx_map);
+            let event_tx = event_tx.clone();
             async move {
-                read.for_each(|msg| async {
-                    match msg {
-                        Ok(msg) => {
-                            if msg.is_close() {
-                                error!("{msg}\nBot connection failed");
-                                exit(1);
+                read.for_each(|msg| {
+                    let event_tx = event_tx.clone();
+                    async {
+                        match msg {
+                            Ok(msg) => {
+                                if msg.is_close() {
+                                    exit_and_eprintln(
+                                        format!("{msg}\nBot connection failed"),
+                                        event_tx,
+                                    );
+                                    return;
+                                }
+                                if !msg.is_text() {
+                                    return;
+                                }
+
+                                let text = msg.to_text().unwrap();
+                                let return_value: ApiReturn = serde_json::from_str(text).unwrap();
+
+                                if return_value.status != "ok" {
+                                    error!("Api return error: {text}")
+                                }
+                                debug!("{}", text);
+
+                                if return_value.echo == "None" {
+                                    return;
+                                }
+
+
+                                let mut api_tx_map = api_tx_map.lock().await;
+
+                                let api_tx = api_tx_map.remove(&return_value.echo).unwrap();
+                                if return_value.status.to_lowercase() == "ok" {
+                                    api_tx.send(Ok(return_value)).unwrap();
+                                } else {
+                                    api_tx.send(Err(return_value)).unwrap();
+                                }
                             }
-                            if !msg.is_text() {
-                                return;
-                            }
-
-                            let text = msg.to_text().unwrap();
-                            let return_value: ApiReturn = serde_json::from_str(text).unwrap();
-
-                            if return_value.status != "ok" {
-                                error!("Api return error: {text}")
-                            }
-                            debug!("{}", text);
-
-                            if return_value.echo == "None" {
-                                return;
-                            }
-
-
-                            let mut api_tx_map = api_tx_map.lock().await;
-
-                            let api_tx = api_tx_map.remove(&return_value.echo).unwrap();
-                            if return_value.status == "ok" {
-                                api_tx.send(Ok(return_value)).unwrap();
-                            } else {
-                                api_tx.send(Err(Error::UnknownError())).unwrap();
-                            }
+                            Err(e) => exit_and_eprintln(e, event_tx),
                         }
-                        Err(e) => exit_and_eprintln(e),
                     }
                 })
                 .await;
@@ -381,7 +398,8 @@ impl Bot {
             let write = Arc::clone(&write);
             let api_tx_map = Arc::clone(&api_tx_map);
             async move {
-                for (api_msg, return_api_tx) in rx {
+                for (api_msg, return_api_tx) in api_rx {
+                    let event_tx = event_tx.clone();
                     debug!("{}", api_msg);
 
                     if api_msg.echo.as_str() != "None" {
@@ -394,7 +412,7 @@ impl Bot {
                     let msg = Message::text(api_msg.to_string());
                     let mut write_lock = write.lock().await;
                     if let Err(e) = write_lock.send(msg).await {
-                        exit_and_eprintln(e);
+                        exit_and_eprintln(e, event_tx);
                     }
                 }
             }
@@ -403,12 +421,14 @@ impl Bot {
 }
 
 
-fn exit_and_eprintln<E>(e: E) -> !
+fn exit_and_eprintln<E>(e: E, event_tx: Sender<InternalEvent>)
 where
     E: std::fmt::Display,
 {
-    error!("{e}\nBot connection failed, please check the configuration and restart Kovi");
-    exit(1);
+    error!("{e}\nBot connection failed, please check the configuration and restart KoviBot");
+    if let Err(e) = event_tx.send(InternalEvent::KoviEvent(handler::KoviEvent::Drop)) {
+        debug!("通道关闭,{e}")
+    };
 }
 
 #[macro_export]

@@ -1,11 +1,10 @@
 use super::SendApi;
-use crate::error::Error;
-use api::ApiReturn;
+use onebot_api::ApiReturn;
 use std::{net::IpAddr, sync::mpsc};
 
-pub mod api;
+pub mod onebot_api;
 
-pub type ApiMpsc = (SendApi, Option<mpsc::Sender<Result<ApiReturn, Error>>>);
+pub type ApiMpsc = (SendApi, Option<mpsc::Sender<Result<ApiReturn, ApiReturn>>>);
 
 /// 运行时的Bot，可以用来发送api，需要从PluginBuilder的.build_runtime_bot()构建。
 /// # Examples

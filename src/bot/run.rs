@@ -5,9 +5,12 @@ use super::{
 };
 use crate::PluginBuilder;
 use log::error;
-use std::sync::{
-    mpsc::{self, Sender},
-    Arc, RwLock,
+use std::{
+    process::exit,
+    sync::{
+        mpsc::{self, Sender},
+        Arc, RwLock,
+    },
 };
 use tokio::runtime::Runtime;
 
@@ -55,9 +58,10 @@ impl Bot {
             tokio::spawn({
                 let access_token = access_token.clone();
                 async move {
-                    Self::ws_send_api(host, port, access_token, api_rx).await;
+                    Self::ws_send_api(host, port, access_token, api_rx, event_tx).await;
                 }
             });
+
 
             // 运行所有的main
             tokio::spawn({
@@ -87,7 +91,7 @@ impl Bot {
             }
             if let Some(drop_task) = drop_task {
                 drop_task.await.unwrap();
-                std::process::exit(0)
+                exit(0)
             }
         });
     }

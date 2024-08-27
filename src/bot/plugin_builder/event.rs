@@ -4,13 +4,6 @@ use serde_json::{self, Value};
 
 mod msg_event;
 
-#[derive(Debug, Clone)]
-pub enum OneBotEvent {
-    OnMsg(AllMsgEvent),
-    OnAllNotice(AllNoticeEvent),
-    OnAllRequest(AllRequestEvent),
-}
-
 
 #[derive(Debug, Deserialize, Serialize, Copy, Clone)]
 pub enum Sex {
