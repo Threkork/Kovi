@@ -54,9 +54,7 @@ impl AllMsgEvent {
     ) -> Result<AllMsgEvent, Box<dyn std::error::Error>> {
         let temp: Value = serde_json::from_str(msg)?;
 
-
         let temp_object = temp.as_object().unwrap();
-
 
         let temp_sender = temp_object["sender"].as_object().unwrap();
 

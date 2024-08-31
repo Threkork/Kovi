@@ -5,7 +5,10 @@ use plugin_builder::{
     ListenFn,
 };
 use serde_json::{json, Value};
-use std::sync::{mpsc, Arc, RwLock};
+use std::{
+    sync::{mpsc, Arc, RwLock},
+    thread,
+};
 
 
 /// Kovi内部事件
@@ -166,23 +169,30 @@ impl Bot {
 async fn handle_msg(listen: ListenFn, e: Arc<AllMsgEvent>, bot: Arc<RwLock<Bot>>) {
     match listen {
         ListenFn::MsgFn(handler) => {
-            handler(&e);
+            let e_clone = Arc::clone(&e);
+            thread::spawn(move || {
+                handler(&e_clone);
+            });
         }
         ListenFn::MsgAsyncFn(handler) => {
             handler(e).await;
         }
 
         ListenFn::AdminMsgFn(handler) => {
-            let user_id = e.user_id;
-            let admin_vec = {
-                let bot = bot.read().unwrap();
-                let mut admin_vec = bot.information.admin.clone();
-                admin_vec.push(bot.information.main_admin);
-                admin_vec
-            };
-            if admin_vec.contains(&user_id) {
-                handler(&e);
-            }
+            let e_clone = Arc::clone(&e);
+            let bot_clone = Arc::clone(&bot);
+            thread::spawn(move || {
+                let user_id = e_clone.user_id;
+                let admin_vec = {
+                    let bot = bot_clone.read().unwrap();
+                    let mut admin_vec = bot.information.admin.clone();
+                    admin_vec.push(bot.information.main_admin);
+                    admin_vec
+                };
+                if admin_vec.contains(&user_id) {
+                    handler(&e_clone);
+                }
+            });
         }
         ListenFn::AdminMsgAsyncFn(handler) => {
             let user_id = e.user_id;
@@ -203,7 +213,10 @@ async fn handle_msg(listen: ListenFn, e: Arc<AllMsgEvent>, bot: Arc<RwLock<Bot>>
 async fn handler_notice(listen: ListenFn, e: Arc<AllNoticeEvent>) {
     match listen {
         ListenFn::AllNoticeFn(handler) => {
-            handler(&e);
+            let e_clone = Arc::clone(&e);
+            thread::spawn(move || {
+                handler(&e_clone);
+            });
         }
         ListenFn::AllNoticeAsyncFn(handler) => {
             handler(e).await;
@@ -215,7 +228,10 @@ async fn handler_notice(listen: ListenFn, e: Arc<AllNoticeEvent>) {
 async fn handler_request(listen: ListenFn, e: Arc<AllRequestEvent>) {
     match listen {
         ListenFn::AllRequestFn(handler) => {
-            handler(&e);
+            let e_clone = Arc::clone(&e);
+            thread::spawn(move || {
+                handler(&e_clone);
+            });
         }
         ListenFn::AllRequestAsyncFn(handler) => {
             handler(e).await;
@@ -228,7 +244,10 @@ async fn handler_kovi_drop(listen: ListenFn) {
     match listen {
         ListenFn::KoviEventDropFn(handler) => {
             info!("A plugin is performing its shutdown tasks, please wait. 有插件正在进行结束工作，请稍候。");
-            handler();
+            let join = thread::spawn(move || {
+                handler();
+            });
+            join.join().unwrap();
         }
         ListenFn::KoviEventDropAsyncFn(handler) => {
             info!("A plugin is performing its shutdown tasks, please wait. 有插件正在进行结束工作，请稍候。");

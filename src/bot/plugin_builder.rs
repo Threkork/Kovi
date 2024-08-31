@@ -163,7 +163,7 @@ impl PluginBuilder {
 
         let all_listen = bot.plugins.get_mut(&self.name).unwrap();
 
-        all_listen.push(ListenFn::MsgAsyncFn(Arc::new(move |event| {
+        all_listen.push(ListenFn::AdminMsgAsyncFn(Arc::new(move |event| {
             Box::pin(handler(Pin::new(event)))
         })));
     }

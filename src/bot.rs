@@ -281,7 +281,7 @@ impl Bot {
             Ok(v) => v,
             Err(e) => {
                 exit_and_eprintln(e, event_tx);
-                panic!("connect error")
+                return;
             }
         };
 
@@ -332,7 +332,7 @@ impl Bot {
             Ok(v) => v,
             Err(e) => {
                 exit_and_eprintln(e, event_tx);
-                panic!("connect error")
+                return;
             }
         };
 

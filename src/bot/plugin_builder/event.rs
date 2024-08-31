@@ -1,17 +1,17 @@
 pub use msg_event::AllMsgEvent;
-use serde::{Deserialize, Serialize};
+use serde::{ Deserialize, Serialize};
 use serde_json::{self, Value};
 
 mod msg_event;
 
 
-#[derive(Debug, Deserialize, Serialize, Copy, Clone)]
+#[derive(Debug, Copy, Clone)]
 pub enum Sex {
     Male,
     Female,
 }
 
-#[derive(Debug, Deserialize, Serialize, Clone)]
+#[derive(Debug, Clone)]
 pub struct Sender {
     pub user_id: i64,
     pub nickname: Option<String>,
