@@ -11,6 +11,7 @@ use std::{
         mpsc::{self, Sender},
         Arc, RwLock,
     },
+    thread,
 };
 use tokio::runtime::Runtime;
 
@@ -90,7 +91,12 @@ impl Bot {
                 }
             }
             if let Some(drop_task) = drop_task {
-                drop_task.await.unwrap();
+                match drop_task.await {
+                    Ok(_) => {}
+                    Err(e) => {
+                        error!("{}", e)
+                    }
+                };
                 exit(0)
             }
         });
@@ -114,7 +120,7 @@ impl Bot {
             let bot_main_job_clone = bot_main_job_clone.clone();
             let api_tx = api_tx_main_job_clone.clone();
             handler_main_job.push(tokio::spawn(async move {
-                match &main_job {
+                match main_job {
                     BotMain::BotSyncMain(sync_main) => {
                         let plugin_builder = PluginBuilder::new(
                             sync_main.name.clone(),
@@ -122,7 +128,10 @@ impl Bot {
                             api_tx,
                         );
                         // 多线程运行 main()
-                        (sync_main.main)(plugin_builder);
+                        let join = thread::spawn(move || {
+                            (sync_main.main)(plugin_builder);
+                        });
+                        join.join().unwrap();
                     }
                     BotMain::BotAsyncMain(async_main) => {
                         let plugin_builder = PluginBuilder::new(
