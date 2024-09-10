@@ -3,7 +3,7 @@ use dialoguer::Input;
 use futures_util::lock::Mutex;
 use futures_util::{SinkExt, StreamExt};
 use handler::InternalEvent;
-use log::{debug, error};
+use log::{debug, error, warn};
 use plugin_builder::{ListenFn, PluginBuilder};
 use reqwest::header::HeaderValue;
 use runtimebot::onebot_api::ApiReturn;
@@ -363,12 +363,21 @@ impl Bot {
                                 }
 
                                 let text = msg.to_text().unwrap();
-                                let return_value: ApiReturn = serde_json::from_str(text).unwrap();
+
+                                debug!("{}", text);
+
+                                let return_value: ApiReturn = match serde_json::from_str(text) {
+                                    Ok(v) => v,
+                                    Err(_) => {
+                                        warn!("Unknow api return： {text}");
+                                        return;
+                                    }
+                                };
 
                                 if return_value.status != "ok" {
-                                    error!("Api return error: {text}")
+                                    warn!("Api return error: {text}")
                                 }
-                                debug!("{}", text);
+
 
                                 if return_value.echo == "None" {
                                     return;
