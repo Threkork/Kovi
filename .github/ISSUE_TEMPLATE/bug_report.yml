@@ -75,4 +75,3 @@ body:
     attributes:
       label: 你想填写的其它内容
       description: 填写其它想填写的内容
-      render: shell
