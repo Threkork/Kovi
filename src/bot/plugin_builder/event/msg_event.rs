@@ -1,12 +1,13 @@
 use super::{Anonymous, Sender};
 use crate::{
-    bot::{plugin_builder::event::Sex, runtimebot::ApiMpsc, SendApi},
+    bot::{plugin_builder::event::Sex, runtimebot::ApiOneshot, SendApi},
     Message,
 };
 use log::{debug, info};
 use serde::Serialize;
 use serde_json::{self, json, Value};
-use std::sync::mpsc;
+use tokio::sync::mpsc;
+
 
 #[derive(Debug, Clone)]
 pub struct AllMsgEvent {
@@ -44,12 +45,12 @@ pub struct AllMsgEvent {
     /// 原始未处理的onebot消息，为json格式，使用需处理
     pub original_msg: String,
 
-    api_tx: mpsc::Sender<ApiMpsc>,
+    api_tx: mpsc::Sender<ApiOneshot>,
 }
 
 impl AllMsgEvent {
     pub fn new(
-        api_tx: mpsc::Sender<ApiMpsc>,
+        api_tx: mpsc::Sender<ApiOneshot>,
         msg: &str,
     ) -> Result<AllMsgEvent, Box<dyn std::error::Error>> {
         let temp: Value = serde_json::from_str(msg)?;
@@ -219,7 +220,10 @@ impl AllMsgEvent {
         };
         let human_msg = msg.to_human_string();
         info!("[reply] [to {message_type}{group_id}{nickname} {id}]: {human_msg}");
-        self.api_tx.send((send_msg, None)).unwrap();
+        let api_tx = self.api_tx.clone();
+        tokio::spawn(async move {
+            api_tx.send((send_msg, None)).await.unwrap();
+        });
     }
 
     /// 快速回复消息并且**引用**
@@ -241,7 +245,10 @@ impl AllMsgEvent {
         };
         let human_msg = msg.to_human_string();
         info!("[reply] [to {message_type}{group_id}{nickname} {id}]: {human_msg}");
-        self.api_tx.send((send_msg, None)).unwrap();
+        let api_tx = self.api_tx.clone();
+        tokio::spawn(async move {
+            api_tx.send((send_msg, None)).await.unwrap();
+        });
     }
 
 
@@ -262,7 +269,10 @@ impl AllMsgEvent {
         };
         let msg = String::from(msg);
         info!("[reply] [to {message_type}{group_id} {nickname} {id}]: {msg}");
-        self.api_tx.send((send_msg, None)).unwrap();
+        let api_tx = self.api_tx.clone();
+        tokio::spawn(async move {
+            api_tx.send((send_msg, None)).await.unwrap();
+        });
     }
 
 

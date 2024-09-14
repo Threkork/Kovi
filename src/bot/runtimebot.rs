@@ -1,10 +1,14 @@
 use super::SendApi;
 use onebot_api::ApiReturn;
-use std::{net::IpAddr, sync::mpsc};
+use std::net::IpAddr;
+use tokio::sync::{mpsc, oneshot};
 
 pub mod onebot_api;
 
-pub type ApiMpsc = (SendApi, Option<mpsc::Sender<Result<ApiReturn, ApiReturn>>>);
+pub type ApiOneshot = (
+    SendApi,
+    Option<oneshot::Sender<Result<ApiReturn, ApiReturn>>>,
+);
 
 /// 运行时的Bot，可以用来发送api，需要从PluginBuilder的.build_runtime_bot()构建。
 /// # Examples
@@ -28,5 +32,5 @@ pub struct RuntimeBot {
     pub host: IpAddr,
     pub port: u16,
     /// 可以发送api，请按照OneBot v11发送api，不然会失败
-    pub api_tx: mpsc::Sender<ApiMpsc>,
+    pub api_tx: mpsc::Sender<ApiOneshot>,
 }

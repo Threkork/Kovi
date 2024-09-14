@@ -7,7 +7,7 @@ use log::{debug, error, warn};
 use plugin_builder::{ListenFn, PluginBuilder};
 use reqwest::header::HeaderValue;
 use runtimebot::onebot_api::ApiReturn;
-use runtimebot::ApiMpsc;
+use runtimebot::ApiOneshot;
 use serde::{Deserialize, Serialize};
 use serde_json::{self, json, Value};
 use std::collections::HashMap;
@@ -15,8 +15,8 @@ use std::env;
 use std::future::Future;
 use std::net::Ipv4Addr;
 use std::pin::Pin;
-use std::sync::mpsc::{self, Sender};
 use std::{fs, net::IpAddr, process::exit, sync::Arc};
+use tokio::sync::mpsc::{self, Sender};
 use tokio_tungstenite::connect_async;
 use tokio_tungstenite::tungstenite::client::IntoClientRequest;
 use tokio_tungstenite::tungstenite::Message;
@@ -98,11 +98,6 @@ pub struct Bot {
     life: BotLife,
 }
 
-#[derive(Clone)]
-pub enum BotMain {
-    BotSyncMain(BotSyncMain),
-    BotAsyncMain(BotAsyncMain),
-}
 
 #[derive(Clone)]
 pub struct BotSyncMain {
@@ -112,7 +107,7 @@ pub struct BotSyncMain {
 }
 
 #[derive(Clone)]
-pub struct BotAsyncMain {
+pub struct BotMain {
     pub name: String,
     pub version: String,
     pub main: Arc<AsyncFn>,
@@ -188,37 +183,18 @@ impl Bot {
         }
     }
 
-    /// 向bot挂载插件，须传入Arc\<Fn\>
-    pub fn mount_main<T>(
-        &mut self,
-        name: T,
-        version: T,
-        main: Arc<dyn Fn(PluginBuilder) + Send + Sync + 'static>,
-    ) where
-        String: From<T>,
-    {
-        let name = String::from(name);
-        let version = String::from(version);
-        let bot_main = BotSyncMain {
-            name,
-            version,
-            main,
-        };
-        self.main.push(BotMain::BotSyncMain(bot_main))
-    }
-
-    pub fn mount_async_main<T>(&mut self, name: T, version: T, main: Arc<AsyncFn>)
+    pub fn mount_main<T>(&mut self, name: T, version: T, main: Arc<AsyncFn>)
     where
         String: From<T>,
     {
         let name = String::from(name);
         let version = String::from(version);
-        let bot_main = BotAsyncMain {
+        let bot_main = BotMain {
             name,
             version,
             main,
         };
-        self.main.push(BotMain::BotAsyncMain(bot_main))
+        self.main.push(bot_main)
     }
 }
 
@@ -233,7 +209,8 @@ enum LifeStatus {
     Running,
 }
 
-type ApiTxMap = Arc<Mutex<HashMap<String, Sender<Result<ApiReturn, ApiReturn>>>>>;
+type ApiTxMap =
+    Arc<Mutex<HashMap<String, tokio::sync::oneshot::Sender<Result<ApiReturn, ApiReturn>>>>>;
 
 #[derive(Debug, Serialize, Clone)]
 pub struct SendApi {
@@ -280,7 +257,7 @@ impl Bot {
         let (ws_stream, _) = match connect_async(request).await {
             Ok(v) => v,
             Err(e) => {
-                exit_and_eprintln(e, event_tx);
+                exit_and_eprintln(e, event_tx).await;
                 return;
             }
         };
@@ -296,12 +273,14 @@ impl Bot {
                         }
 
                         let text = msg.to_text().unwrap();
-                        if let Err(e) = event_tx.send(InternalEvent::OneBotEvent(text.to_string()))
+                        if let Err(e) = event_tx
+                            .send(InternalEvent::OneBotEvent(text.to_string()))
+                            .await
                         {
                             debug!("通道关闭：{e}")
                         }
                     }
-                    Err(e) => exit_and_eprintln(e, event_tx),
+                    Err(e) => exit_and_eprintln(e, event_tx).await,
                 }
             }
         })
@@ -312,7 +291,7 @@ impl Bot {
         host: IpAddr,
         port: u16,
         access_token: String,
-        api_rx: mpsc::Receiver<ApiMpsc>,
+        mut api_rx: mpsc::Receiver<ApiOneshot>,
         event_tx: mpsc::Sender<InternalEvent>,
     ) {
         //增加Authorization头
@@ -331,7 +310,7 @@ impl Bot {
         let (ws_stream, _) = match connect_async(request).await {
             Ok(v) => v,
             Err(e) => {
-                exit_and_eprintln(e, event_tx);
+                exit_and_eprintln(e, event_tx).await;
                 return;
             }
         };
@@ -355,7 +334,8 @@ impl Bot {
                                     exit_and_eprintln(
                                         format!("{msg}\nBot connection failed"),
                                         event_tx,
-                                    );
+                                    )
+                                    .await;
                                     return;
                                 }
                                 if !msg.is_text() {
@@ -393,7 +373,7 @@ impl Bot {
                                     api_tx.send(Err(return_value)).unwrap();
                                 }
                             }
-                            Err(e) => exit_and_eprintln(e, event_tx),
+                            Err(e) => exit_and_eprintln(e, event_tx).await,
                         }
                     }
                 })
@@ -407,7 +387,7 @@ impl Bot {
             let write = Arc::clone(&write);
             let api_tx_map = Arc::clone(&api_tx_map);
             async move {
-                for (api_msg, return_api_tx) in api_rx {
+                while let Some((api_msg, return_api_tx)) = api_rx.recv().await {
                     let event_tx = event_tx.clone();
                     debug!("{}", api_msg);
 
@@ -421,7 +401,7 @@ impl Bot {
                     let msg = Message::text(api_msg.to_string());
                     let mut write_lock = write.lock().await;
                     if let Err(e) = write_lock.send(msg).await {
-                        exit_and_eprintln(e, event_tx);
+                        exit_and_eprintln(e, event_tx).await;
                     }
                 }
             }
@@ -430,80 +410,29 @@ impl Bot {
 }
 
 
-fn exit_and_eprintln<E>(e: E, event_tx: Sender<InternalEvent>)
+async fn exit_and_eprintln<E>(e: E, event_tx: Sender<InternalEvent>)
 where
     E: std::fmt::Display,
 {
     error!("{e}\nBot connection failed, please check the configuration and restart KoviBot");
-    if let Err(e) = event_tx.send(InternalEvent::KoviEvent(handler::KoviEvent::Drop)) {
+    if let Err(e) = event_tx
+        .send(InternalEvent::KoviEvent(handler::KoviEvent::Drop))
+        .await
+    {
         debug!("通道关闭,{e}")
     };
 }
 
 #[macro_export]
 macro_rules! build_bot {
-    ( $( $sync_plugin:ident ),* $(,)* ) => {
+    ($( $plugin:ident ),* $(,)* ) => {
         {
             let mut bot = kovi::bot::Bot::build();
 
             $(
-                let (crate_name, crate_version) = $sync_plugin::__kovi__get_plugin_info();
+                let (crate_name, crate_version) = $plugin::__kovi__get_plugin_info();
                 println!("Mounting plugin: {}", crate_name);
-                bot.mount_main(crate_name, crate_version, std::sync::Arc::new($sync_plugin::main));
-            )*
-
-            bot
-        }
-    };
-
-    ( async ( $( $async_plugin:ident ),* ) $(,)* ) => {
-        {
-            let mut bot = kovi::bot::Bot::build();
-
-            $(
-                let (crate_name, crate_version) = $async_plugin::__kovi__get_plugin_info();
-                println!("Mounting async plugin: {}", crate_name);
-                bot.mount_async_main(crate_name, crate_version, std::sync::Arc::new($async_plugin::__kovi__run_async_plugin));
-            )*
-
-            bot
-        }
-    };
-
-    ( async ( $( $async_plugin:ident ),* ) & $( $sync_plugin:ident ),* $(,)* ) => {
-        {
-            let mut bot = kovi::bot::Bot::build();
-
-            $(
-                let (crate_name, crate_version) = $async_plugin::__kovi__get_plugin_info();
-                println!("Mounting async plugin: {}", crate_name);
-                bot.mount_async_main(crate_name, crate_version, std::sync::Arc::new($async_plugin::__kovi__run_async_plugin));
-            )*
-
-            $(
-                let (crate_name, crate_version) = $sync_plugin::__kovi__get_plugin_info();
-                println!("Mounting plugin: {}", crate_name);
-                bot.mount_main(crate_name, crate_version, std::sync::Arc::new($sync_plugin::main));
-            )*
-
-            bot
-        }
-    };
-
-    ( $( $sync_plugin:ident ),* & async ( $( $async_plugin:ident ),* ) $(,)* ) => {
-        {
-            let mut bot = kovi::bot::Bot::build();
-
-            $(
-                let (crate_name, crate_version) = $sync_plugin::__kovi__get_plugin_info();
-                println!("Mounting plugin: {}", crate_name);
-                bot.mount_main(crate_name, crate_version, std::sync::Arc::new($sync_plugin::main));
-            )*
-
-            $(
-                let (crate_name, crate_version) = $async_plugin::__kovi__get_plugin_info();
-                println!("Mounting async plugin: {}", crate_name);
-                bot.mount_async_main(crate_name, crate_version, std::sync::Arc::new($async_plugin::__kovi__run_async_plugin));
+                bot.mount_main(crate_name, crate_version, std::sync::Arc::new($plugin::__kovi__run_async_plugin));
             )*
 
             bot
