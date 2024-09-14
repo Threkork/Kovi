@@ -70,7 +70,7 @@ body:
     validations:
       required: true
 
-  - type: input
+  - type: textarea
     id: any
     attributes:
       label: 你想填写的其它内容
