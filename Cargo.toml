@@ -1,6 +1,6 @@
 [package]
 name = "kovi"
-version = "0.7.3"
+version = "0.7.4"
 edition = "2021"
 description = "A OneBot V11 bot plugin framework"
 license = "MPL-2.0"

@@ -125,7 +125,7 @@ impl PluginBuilder {
     /// 注册一个处理程序，用于处理接收到的消息事件（`AllMsgEvent`）。
     pub fn on_msg_async<F, Fut>(&mut self, handler: F)
     where
-        F: Fn(Pin<Arc<AllMsgEvent>>) -> Fut + Send + Sync + 'static,
+        F: Fn(Arc<AllMsgEvent>) -> Fut + Send + Sync + 'static,
         Fut: Future<Output = ()> + Send + 'static,
     {
         let mut bot = self.bot.write().unwrap();
@@ -133,7 +133,7 @@ impl PluginBuilder {
         let all_listen = bot.plugins.get_mut(&self.name).unwrap();
 
         all_listen.push(ListenFn::MsgAsyncFn(Arc::new(move |event| {
-            Box::pin(handler(Pin::new(event)))
+            Box::pin(handler(event))
         })));
     }
 
@@ -156,7 +156,7 @@ impl PluginBuilder {
     /// 注册一个处理程序，用于处理接收到的消息事件（`AllMsgEvent`）。
     pub fn on_admin_msg_async<F, Fut>(&mut self, handler: F)
     where
-        F: Fn(Pin<Arc<AllMsgEvent>>) -> Fut + Send + Sync + 'static,
+        F: Fn(Arc<AllMsgEvent>) -> Fut + Send + Sync + 'static,
         Fut: Future<Output = ()> + Send + 'static,
     {
         let mut bot = self.bot.write().unwrap();
@@ -164,7 +164,7 @@ impl PluginBuilder {
         let all_listen = bot.plugins.get_mut(&self.name).unwrap();
 
         all_listen.push(ListenFn::AdminMsgAsyncFn(Arc::new(move |event| {
-            Box::pin(handler(Pin::new(event)))
+            Box::pin(handler(event))
         })));
     }
 
@@ -187,7 +187,7 @@ impl PluginBuilder {
     /// 注册一个处理程序，用于处理接收到的消息事件（`AllNoticeEvent`）。
     pub fn on_all_notice_async<F, Fut>(&mut self, handler: F)
     where
-        F: Fn(Pin<Arc<AllNoticeEvent>>) -> Fut + Send + Sync + 'static,
+        F: Fn(Arc<AllNoticeEvent>) -> Fut + Send + Sync + 'static,
         Fut: Future<Output = ()> + Send + 'static,
     {
         let mut bot = self.bot.write().unwrap();
@@ -195,7 +195,7 @@ impl PluginBuilder {
         let all_listen = bot.plugins.get_mut(&self.name).unwrap();
 
         all_listen.push(ListenFn::AllNoticeAsyncFn(Arc::new(move |event| {
-            Box::pin(handler(Pin::new(event)))
+            Box::pin(handler(event))
         })));
     }
 
@@ -218,7 +218,7 @@ impl PluginBuilder {
     /// 注册一个处理程序，用于处理接收到的消息事件（`AllRequestEvent`）。
     pub fn on_all_request_async<F, Fut>(&mut self, handler: F)
     where
-        F: Fn(Pin<Arc<AllRequestEvent>>) -> Fut + Send + Sync + 'static,
+        F: Fn(Arc<AllRequestEvent>) -> Fut + Send + Sync + 'static,
         Fut: Future<Output = ()> + Send + 'static,
     {
         let mut bot = self.bot.write().unwrap();
@@ -226,7 +226,7 @@ impl PluginBuilder {
         let all_listen = bot.plugins.get_mut(&self.name).unwrap();
 
         all_listen.push(ListenFn::AllRequestAsyncFn(Arc::new(move |event| {
-            Box::pin(handler(Pin::new(event)))
+            Box::pin(handler(event))
         })));
     }
 
