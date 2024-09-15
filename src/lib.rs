@@ -16,10 +16,11 @@ pub mod error;
 pub mod utils;
 
 #[cfg(feature = "logger")]
-mod logger;
+pub mod logger;
 
 pub use bot::message::Message;
 pub use bot::plugin_builder::PluginBuilder;
+pub use bot::Bot;
 pub use kovi_macros::plugin;
 
 pub use chrono;

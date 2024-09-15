@@ -31,6 +31,6 @@ pub struct RuntimeBot {
 
     pub host: IpAddr,
     pub port: u16,
-    /// 可以发送api，请按照OneBot v11发送api，不然会失败
-    pub api_tx: mpsc::Sender<ApiOneshot>,
+
+    pub(crate) api_tx: mpsc::Sender<ApiOneshot>,
 }

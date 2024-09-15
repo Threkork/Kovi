@@ -1,11 +1,8 @@
 use dialoguer::theme::ColorfulTheme;
 use dialoguer::Input;
-use futures_util::lock::Mutex;
-use futures_util::{SinkExt, StreamExt};
 use handler::InternalEvent;
-use log::{debug, error, warn};
+use log::{debug, error};
 use plugin_builder::{ListenFn, PluginBuilder};
-use reqwest::header::HeaderValue;
 use runtimebot::onebot_api::ApiReturn;
 use runtimebot::ApiOneshot;
 use serde::{Deserialize, Serialize};
@@ -17,22 +14,84 @@ use std::net::Ipv4Addr;
 use std::pin::Pin;
 use std::{fs, net::IpAddr, process::exit, sync::Arc};
 use tokio::sync::mpsc::{self, Sender};
-use tokio_tungstenite::connect_async;
-use tokio_tungstenite::tungstenite::client::IntoClientRequest;
-use tokio_tungstenite::tungstenite::Message;
 
 mod run;
 
-#[cfg(feature = "logger")]
-use crate::logger::set_logger;
-
+mod connect;
 mod handler;
 pub mod message;
 pub mod plugin_builder;
 pub mod runtimebot;
 
+impl Bot {
+    /// 构建一个bot实例
+    /// # Examples
+    /// ```
+    /// let bot = Bot::build();
+    /// bot.run()
+    /// ```
+    pub fn build(conf: KoviConf) -> Bot {
+        Bot {
+            information: BotInformation {
+                id: 0,
+                nickname: "".to_string(),
+                main_admin: conf.main_admin,
+                admin: conf.admins,
+                server: conf.server,
+            },
+            main: Vec::new(),
+            plugins: HashMap::new(),
+        }
+    }
+
+    pub fn mount_main<T>(&mut self, name: T, version: T, main: Arc<AsyncFn>)
+    where
+        String: From<T>,
+    {
+        let name = String::from(name);
+        let version = String::from(version);
+        let bot_main = BotMain {
+            name,
+            version,
+            main,
+        };
+        self.main.push(bot_main)
+    }
+
+    pub fn load_local_conf() -> KoviConf {
+        let conf_json: KoviConf = match fs::read_to_string("kovi.conf.json") {
+            Ok(v) => match serde_json::from_str(&v) {
+                Ok(v) => v,
+                Err(err) => {
+                    error!("{err}");
+                    exit(1)
+                }
+            },
+            Err(_) => match config_file_write_and_return() {
+                Ok(v) => v,
+                Err(err) => {
+                    error!("{err}");
+                    exit(1)
+                }
+            },
+        };
+
+        unsafe {
+            if env::var("RUST_LOG").is_err() {
+                if conf_json.debug {
+                    env::set_var("RUST_LOG", "debug");
+                } else {
+                    env::set_var("RUST_LOG", "info");
+                }
+            }
+        }
+
+        conf_json
+    }
+}
+
 /// 将配置文件写入磁盘
-fn config_file_write_and_return() -> Result<ConfigJson, std::io::Error> {
+fn config_file_write_and_return() -> Result<KoviConf, std::io::Error> {
     let host = Input::with_theme(&ColorfulTheme::default())
         .with_prompt("What is the IP of the OneBot server?")
         .default(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)))
@@ -61,7 +120,6 @@ fn config_file_write_and_return() -> Result<ConfigJson, std::io::Error> {
     let config = json!({
         "main_admin": main_admin,
         "admins": [],
-        "plugins": [],
         "server": {
             "host": host,
             "port": port,
@@ -70,20 +128,30 @@ fn config_file_write_and_return() -> Result<ConfigJson, std::io::Error> {
         "debug": false
     });
 
-    let config: ConfigJson = serde_json::from_value(config).unwrap();
+    let config: KoviConf = serde_json::from_value(config).unwrap();
 
     let file = fs::File::create("kovi.conf.json")?;
     serde_json::to_writer_pretty(file, &config)?;
     Ok(config)
 }
 
+/// kovi的配置
 #[derive(Deserialize, Serialize)]
-struct ConfigJson {
-    main_admin: i64,
-    admins: Vec<i64>,
-    plugins: Vec<String>,
-    server: Server,
-    debug: bool,
+pub struct KoviConf {
+    pub main_admin: i64,
+    pub admins: Vec<i64>,
+    pub server: Server,
+    pub debug: bool,
+}
+impl KoviConf {
+    pub fn new(main_admin: i64, admins: Option<Vec<i64>>, server: Server, debug: bool) -> Self {
+        KoviConf {
+            main_admin,
+            admins: if let Some(v) = admins { v } else { Vec::new() },
+            server,
+            debug,
+        }
+    }
 }
 
 type AsyncFn =
@@ -92,10 +160,9 @@ type AsyncFn =
 /// bot结构体
 #[derive(Clone)]
 pub struct Bot {
-    information: BotInformation,
-    main: Vec<BotMain>,
-    plugins: HashMap<String, Vec<ListenFn>>,
-    life: BotLife,
+    pub information: BotInformation,
+    pub main: Vec<BotMain>,
+    pub plugins: HashMap<String, Vec<ListenFn>>,
 }
 
 
@@ -116,101 +183,19 @@ pub struct BotMain {
 /// bot信息结构体
 #[derive(Debug, Clone)]
 pub struct BotInformation {
-    id: i64,
-    nickname: String,
-    main_admin: i64,
-    admin: Vec<i64>,
-    server: Server,
+    pub id: i64,
+    pub nickname: String,
+    pub main_admin: i64,
+    pub admin: Vec<i64>,
+    pub server: Server,
 }
 /// server信息
 #[derive(Deserialize, Serialize, Debug, Clone)]
 pub struct Server {
-    host: IpAddr,
-    port: u16,
-    access_token: String,
+    pub host: IpAddr,
+    pub port: u16,
+    pub access_token: String,
 }
-
-impl Bot {
-    /// 构建一个bot实例
-    /// # Examples
-    /// ```
-    /// let bot = Bot::build();
-    /// bot.run()
-    /// ```
-    pub fn build() -> Bot {
-        let config_json: ConfigJson = match fs::read_to_string("kovi.conf.json") {
-            Ok(v) => match serde_json::from_str(&v) {
-                Ok(v) => v,
-                Err(err) => {
-                    error!("{err}");
-                    exit(1)
-                }
-            },
-            Err(_) => match config_file_write_and_return() {
-                Ok(v) => v,
-                Err(err) => {
-                    error!("{err}");
-                    exit(1)
-                }
-            },
-        };
-        if env::var("RUST_LOG").is_err() {
-            if config_json.debug {
-                env::set_var("RUST_LOG", "debug");
-            } else {
-                env::set_var("RUST_LOG", "info");
-            }
-        }
-
-        #[cfg(feature = "logger")]
-        set_logger();
-
-
-        Bot {
-            information: BotInformation {
-                id: 0,
-                nickname: "".to_string(),
-                main_admin: config_json.main_admin,
-                admin: config_json.admins,
-                server: config_json.server,
-            },
-            main: Vec::new(),
-            plugins: HashMap::new(),
-            life: BotLife {
-                status: LifeStatus::Initial,
-                //现在的时间
-            },
-        }
-    }
-
-    pub fn mount_main<T>(&mut self, name: T, version: T, main: Arc<AsyncFn>)
-    where
-        String: From<T>,
-    {
-        let name = String::from(name);
-        let version = String::from(version);
-        let bot_main = BotMain {
-            name,
-            version,
-            main,
-        };
-        self.main.push(bot_main)
-    }
-}
-
-#[derive(Debug, Clone)]
-struct BotLife {
-    status: LifeStatus,
-}
-
-#[derive(Debug, Clone)]
-enum LifeStatus {
-    Initial,
-    Running,
-}
-
-type ApiTxMap =
-    Arc<Mutex<HashMap<String, tokio::sync::oneshot::Sender<Result<ApiReturn, ApiReturn>>>>>;
 
 #[derive(Debug, Serialize, Clone)]
 pub struct SendApi {
@@ -235,180 +220,6 @@ impl SendApi {
     }
 }
 
-impl Bot {
-    async fn ws_connect(
-        host: IpAddr,
-        port: u16,
-        access_token: String,
-        event_tx: mpsc::Sender<InternalEvent>,
-    ) {
-        //增加Authorization头
-        let mut request = format!("ws://{}:{}/event", host, port)
-            .into_client_request()
-            .unwrap();
-
-        if !access_token.is_empty() {
-            request.headers_mut().insert(
-                "Authorization",
-                HeaderValue::from_str(&format!("Bearer {}", access_token)).unwrap(),
-            );
-        }
-
-        let (ws_stream, _) = match connect_async(request).await {
-            Ok(v) => v,
-            Err(e) => {
-                exit_and_eprintln(e, event_tx).await;
-                return;
-            }
-        };
-
-        let (_, read) = ws_stream.split();
-        read.for_each(|msg| {
-            let event_tx = event_tx.clone();
-            async {
-                match msg {
-                    Ok(msg) => {
-                        if !msg.is_text() {
-                            return;
-                        }
-
-                        let text = msg.to_text().unwrap();
-                        if let Err(e) = event_tx
-                            .send(InternalEvent::OneBotEvent(text.to_string()))
-                            .await
-                        {
-                            debug!("通道关闭：{e}")
-                        }
-                    }
-                    Err(e) => exit_and_eprintln(e, event_tx).await,
-                }
-            }
-        })
-        .await;
-    }
-
-    async fn ws_send_api(
-        host: IpAddr,
-        port: u16,
-        access_token: String,
-        mut api_rx: mpsc::Receiver<ApiOneshot>,
-        event_tx: mpsc::Sender<InternalEvent>,
-    ) {
-        //增加Authorization头
-        let mut request = format!("ws://{}:{}/api", host, port)
-            .into_client_request()
-            .unwrap();
-
-        if !access_token.is_empty() {
-            request.headers_mut().insert(
-                "Authorization",
-                HeaderValue::from_str(&format!("Bearer {}", access_token)).unwrap(),
-            );
-        }
-
-
-        let (ws_stream, _) = match connect_async(request).await {
-            Ok(v) => v,
-            Err(e) => {
-                exit_and_eprintln(e, event_tx).await;
-                return;
-            }
-        };
-
-        let (write, read) = ws_stream.split();
-        let write = Arc::new(Mutex::new(write));
-
-        let api_tx_map: ApiTxMap = Arc::new(Mutex::new(HashMap::new()));
-
-        //读
-        tokio::spawn({
-            let api_tx_map = Arc::clone(&api_tx_map);
-            let event_tx = event_tx.clone();
-            async move {
-                read.for_each(|msg| {
-                    let event_tx = event_tx.clone();
-                    async {
-                        match msg {
-                            Ok(msg) => {
-                                if msg.is_close() {
-                                    exit_and_eprintln(
-                                        format!("{msg}\nBot connection failed"),
-                                        event_tx,
-                                    )
-                                    .await;
-                                    return;
-                                }
-                                if !msg.is_text() {
-                                    return;
-                                }
-
-                                let text = msg.to_text().unwrap();
-
-                                debug!("{}", text);
-
-                                let return_value: ApiReturn = match serde_json::from_str(text) {
-                                    Ok(v) => v,
-                                    Err(_) => {
-                                        warn!("Unknow api return： {text}");
-                                        return;
-                                    }
-                                };
-
-                                if return_value.status != "ok" {
-                                    warn!("Api return error: {text}")
-                                }
-
-
-                                if return_value.echo == "None" {
-                                    return;
-                                }
-
-
-                                let mut api_tx_map = api_tx_map.lock().await;
-
-                                let api_tx = api_tx_map.remove(&return_value.echo).unwrap();
-                                if return_value.status.to_lowercase() == "ok" {
-                                    api_tx.send(Ok(return_value)).unwrap();
-                                } else {
-                                    api_tx.send(Err(return_value)).unwrap();
-                                }
-                            }
-                            Err(e) => exit_and_eprintln(e, event_tx).await,
-                        }
-                    }
-                })
-                .await;
-            }
-        });
-
-
-        //写
-        tokio::spawn({
-            let write = Arc::clone(&write);
-            let api_tx_map = Arc::clone(&api_tx_map);
-            async move {
-                while let Some((api_msg, return_api_tx)) = api_rx.recv().await {
-                    let event_tx = event_tx.clone();
-                    debug!("{}", api_msg);
-
-                    if api_msg.echo.as_str() != "None" {
-                        api_tx_map
-                            .lock()
-                            .await
-                            .insert(api_msg.echo.clone(), return_api_tx.unwrap());
-                    }
-
-                    let msg = Message::text(api_msg.to_string());
-                    let mut write_lock = write.lock().await;
-                    if let Err(e) = write_lock.send(msg).await {
-                        exit_and_eprintln(e, event_tx).await;
-                    }
-                }
-            }
-        });
-    }
-}
-
 
 async fn exit_and_eprintln<E>(e: E, event_tx: Sender<InternalEvent>)
 where
@@ -427,11 +238,13 @@ where
 macro_rules! build_bot {
     ($( $plugin:ident ),* $(,)* ) => {
         {
-            let mut bot = kovi::bot::Bot::build();
+            kovi::logger::set_logger();
+            let conf = kovi::bot::Bot::load_local_conf();
+            let mut bot = kovi::bot::Bot::build(conf);
 
             $(
                 let (crate_name, crate_version) = $plugin::__kovi__get_plugin_info();
-                println!("Mounting plugin: {}", crate_name);
+                kovi::log::info!("Mounting plugin: {}", crate_name);
                 bot.mount_main(crate_name, crate_version, std::sync::Arc::new($plugin::__kovi__run_async_plugin));
             )*
 

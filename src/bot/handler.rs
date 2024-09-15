@@ -262,6 +262,5 @@ pub async fn handler_lifecycle(bot: Arc<RwLock<Bot>>, api_tx_: mpsc::Sender<ApiO
         let mut bot = bot.write().unwrap();
         bot.information.id = self_id;
         bot.information.nickname = self_name;
-        bot.life.status = LifeStatus::Running;
     }
 }

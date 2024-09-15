@@ -17,7 +17,7 @@ use tokio::{
 
 impl Bot {
     /// 运行bot
-    /// **注意此函数会阻塞**
+    /// **注意此函数会阻塞并且接管程序退出, 程序不会运行后续所有代码**
     pub fn run(self) {
         let (host, port, access_token) = (
             self.information.server.host,

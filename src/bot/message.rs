@@ -239,7 +239,7 @@ impl Message {
 
 impl Message {
     /// 返回空的 Message::CQString ，里面是空字符串
-    pub fn new_string() -> Message {
+    pub fn new_cqstring() -> Message {
         Message::CQString("".to_string())
     }
 

@@ -13,9 +13,7 @@ pub mod event;
 
 pub type PinFut = Pin<Box<dyn Future<Output = ()> + Send>>;
 
-pub type MsgFn = Arc<dyn Fn(Arc<AllMsgEvent>) -> PinFut + Send + Sync + 'static>;
-
-pub type AdminMsgFn = Arc<dyn Fn(Arc<AllMsgEvent>) -> PinFut + Send + Sync + 'static>;
+pub type AllMsgFn = Arc<dyn Fn(Arc<AllMsgEvent>) -> PinFut + Send + Sync + 'static>;
 
 pub type AllNoticeFn = Arc<dyn Fn(Arc<AllNoticeEvent>) -> PinFut + Send + Sync + 'static>;
 
@@ -25,9 +23,9 @@ pub type KoviDropEventFn = Arc<dyn Fn() -> PinFut + Send + Sync + 'static>;
 
 #[derive(Clone)]
 pub enum ListenFn {
-    MsgFn(MsgFn),
+    MsgFn(AllMsgFn),
 
-    AdminMsgFn(AdminMsgFn),
+    AdminMsgFn(AllMsgFn),
 
     AllNoticeFn(AllNoticeFn),
 
@@ -41,8 +39,7 @@ pub struct PluginBuilder {
     pub name: String,
     pub host: IpAddr,
     pub port: u16,
-
-    bot: Arc<RwLock<Bot>>,
+    pub bot: Arc<RwLock<Bot>>,
     api_tx: mpsc::Sender<ApiOneshot>,
 }
 
