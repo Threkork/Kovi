@@ -521,17 +521,19 @@ impl RuntimeBot {
     ///
     /// `flag`: 加群请求的 flag（需从上报的数据中获得）
     ///
+    /// `type_param`: type 或 sub_type，不同的服务端需要不同的字段名
+    ///
     /// `sub_type`: add 或 invite，请求类型（需要和上报消息中的 sub_type 字段相符）
     ///
     /// `approve`: 是否同意请求／邀请
     ///
     /// `remark`: 可为空, 拒绝理由（仅在拒绝时有效）
-    pub fn set_group_add_request(&self, flag: &str, sub_type: &str, approve: bool, reason: &str) {
+    pub fn set_group_add_request(&self, flag: &str, type_param: &str, sub_type: &str, approve: bool, reason: &str) {
         let send_api = SendApi::new(
             "set_friend_add_request",
             json!({
                 "flag":flag,
-                    "sub_type":sub_type,
+                    type_param: sub_type,
                     "approve":approve,
                     "reason":reason,
             }),
