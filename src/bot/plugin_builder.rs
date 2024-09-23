@@ -170,3 +170,17 @@ impl PluginBuilder {
         })));
     }
 }
+
+#[macro_export]
+macro_rules! async_move  {
+    ($event:ident; $($var:ident),*; $($body:tt)*) => {
+        {
+            $(let $var = $var.clone();)*
+            move |$event| {
+                $(let $var = $var.clone();)*
+                async move
+                    $($body)*
+            }
+        }
+    };
+}
