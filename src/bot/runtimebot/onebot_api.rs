@@ -15,6 +15,11 @@ pub enum HonorType {
     Emotion,
 }
 
+pub enum AddRequestType<'a> {
+    Type(&'a str),
+    SubType(&'a str),
+}
+
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct ApiReturn {
     pub status: String,
@@ -521,19 +526,26 @@ impl RuntimeBot {
     ///
     /// `flag`: 加群请求的 flag（需从上报的数据中获得）
     ///
-    /// `type_param`: type 或 sub_type，不同的服务端需要不同的字段名
-    ///
-    /// `sub_type`: add 或 invite，请求类型（需要和上报消息中的 sub_type 字段相符）
-    ///
+    /// `type`: add 或 invite，请求类型（需要和上报消息中的 sub_type 或 type 字段相符），由于不同服务端实现不一样，Kovi 提供一个枚举，使用需注意服务端要求是 sub_type 还是 type
     /// `approve`: 是否同意请求／邀请
     ///
     /// `remark`: 可为空, 拒绝理由（仅在拒绝时有效）
-    pub fn set_group_add_request(&self, flag: &str, type_param: &str, sub_type: &str, approve: bool, reason: &str) {
+    pub fn set_group_add_request(
+        &self,
+        flag: &str,
+        r#type: AddRequestType,
+        approve: bool,
+        reason: &str,
+    ) {
+        let (type_, type_value) = match r#type {
+            AddRequestType::SubType(v) => ("sub_type", v),
+            AddRequestType::Type(v) => ("type", v),
+        };
         let send_api = SendApi::new(
             "set_friend_add_request",
             json!({
                 "flag":flag,
-                    type_param: sub_type,
+                    type_: type_value,
                     "approve":approve,
                     "reason":reason,
             }),

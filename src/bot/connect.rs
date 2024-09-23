@@ -112,7 +112,7 @@ impl Bot {
                             Ok(msg) => {
                                 if msg.is_close() {
                                     exit_and_eprintln(
-                                        format!("{msg}\nBot connection failed"),
+                                        format!("{msg}\nBot api connection failed"),
                                         event_tx,
                                     )
                                     .await;
