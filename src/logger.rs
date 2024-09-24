@@ -52,3 +52,8 @@ pub fn set_logger() {
         );
     }
 }
+
+pub fn try_set_logger() {
+    #[cfg(feature = "logger")]
+    set_logger();
+}

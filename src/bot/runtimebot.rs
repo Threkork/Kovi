@@ -1,8 +1,12 @@
-use super::SendApi;
+use super::{Bot, SendApi};
 use onebot_api::ApiReturn;
-use std::net::IpAddr;
+use std::{
+    net::IpAddr,
+    sync::{Arc, RwLock},
+};
 use tokio::sync::{mpsc, oneshot};
 
+pub mod kovi_api;
 pub mod onebot_api;
 
 pub type ApiOneshot = (
@@ -22,7 +26,7 @@ pub type ApiOneshot = (
 /// }
 /// ```
 #[allow(clippy::needless_doctest_main)]
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct RuntimeBot {
     /// 主管理员
     pub main_admin: i64,
@@ -32,5 +36,7 @@ pub struct RuntimeBot {
     pub host: IpAddr,
     pub port: u16,
 
+    pub(crate) bot: Arc<RwLock<Bot>>,
+    pub(crate) plugin_name: String,
     pub(crate) api_tx: mpsc::Sender<ApiOneshot>,
 }

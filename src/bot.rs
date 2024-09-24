@@ -1,8 +1,9 @@
+use croner::Cron;
 use dialoguer::theme::ColorfulTheme;
 use dialoguer::Input;
 use handler::InternalEvent;
 use log::{debug, error};
-use plugin_builder::{ListenFn, PluginBuilder};
+use plugin_builder::{ListenFn, NoArgsFn};
 use runtimebot::onebot_api::ApiReturn;
 use runtimebot::ApiOneshot;
 use serde::{Deserialize, Serialize};
@@ -33,14 +34,13 @@ impl Bot {
     pub fn build(conf: KoviConf) -> Bot {
         Bot {
             information: BotInformation {
-                id: 0,
-                nickname: "".to_string(),
                 main_admin: conf.main_admin,
                 admin: conf.admins,
                 server: conf.server,
             },
             main: Vec::new(),
             plugins: HashMap::new(),
+            cron_plugins: HashMap::new(),
         }
     }
 
@@ -154,8 +154,7 @@ impl KoviConf {
     }
 }
 
-type AsyncFn =
-    dyn Fn(PluginBuilder) -> Pin<Box<dyn Future<Output = ()> + Send>> + Send + Sync + 'static;
+type AsyncFn = dyn Fn() -> Pin<Box<dyn Future<Output = ()> + Send>> + Send + Sync + 'static;
 
 /// bot结构体
 #[derive(Clone)]
@@ -163,14 +162,7 @@ pub struct Bot {
     pub information: BotInformation,
     pub main: Vec<BotMain>,
     pub plugins: HashMap<String, Vec<ListenFn>>,
-}
-
-
-#[derive(Clone)]
-pub struct BotSyncMain {
-    pub name: String,
-    pub version: String,
-    pub main: Arc<dyn Fn(PluginBuilder) + Send + Sync + 'static>,
+    pub cron_plugins: HashMap<String, Vec<(Cron, NoArgsFn)>>,
 }
 
 #[derive(Clone)]
@@ -183,8 +175,6 @@ pub struct BotMain {
 /// bot信息结构体
 #[derive(Debug, Clone)]
 pub struct BotInformation {
-    pub id: i64,
-    pub nickname: String,
     pub main_admin: i64,
     pub admin: Vec<i64>,
     pub server: Server,
@@ -238,14 +228,14 @@ where
 macro_rules! build_bot {
     ($( $plugin:ident ),* $(,)* ) => {
         {
-            kovi::logger::set_logger();
             let conf = kovi::bot::Bot::load_local_conf();
+            kovi::logger::try_set_logger();
             let mut bot = kovi::bot::Bot::build(conf);
 
             $(
-                let (crate_name, crate_version) = $plugin::__kovi__get_plugin_info();
+                let (crate_name, crate_version) = $plugin::__kovi_get_plugin_info();
                 kovi::log::info!("Mounting plugin: {}", crate_name);
-                bot.mount_main(crate_name, crate_version, std::sync::Arc::new($plugin::__kovi__run_async_plugin));
+                bot.mount_main(crate_name, crate_version, std::sync::Arc::new($plugin::__kovi_run_async_plugin));
             )*
 
             bot

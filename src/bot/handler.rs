@@ -20,6 +20,17 @@ pub enum KoviEvent {
 }
 
 impl Bot {
+    pub async fn handler_event(
+        bot: Arc<RwLock<Self>>,
+        event: InternalEvent,
+        api_tx: mpsc::Sender<ApiOneshot>,
+    ) {
+        match event {
+            InternalEvent::KoviEvent(event) => Self::handle_kovi_event(bot, event).await,
+            InternalEvent::OneBotEvent(msg) => Self::handler_msg(bot, msg, api_tx).await,
+        }
+    }
+
     async fn handle_kovi_event(bot: Arc<RwLock<Self>>, event: KoviEvent) {
         let plugins = bot.read().unwrap().plugins.clone();
         // let event = Arc::new(event);
@@ -43,17 +54,6 @@ impl Bot {
             }
         }
     }
-    pub async fn handler_event(
-        bot: Arc<RwLock<Self>>,
-        event: InternalEvent,
-        api_tx: mpsc::Sender<ApiOneshot>,
-    ) {
-        match event {
-            InternalEvent::KoviEvent(event) => Self::handle_kovi_event(bot, event).await,
-            InternalEvent::OneBotEvent(msg) => Self::handler_msg(bot, msg, api_tx).await,
-        }
-    }
-
 
     pub async fn handler_msg(
         bot: Arc<RwLock<Self>>,
@@ -68,7 +68,7 @@ impl Bot {
             match meta_event_type.as_str().unwrap() {
                 // 生命周期一开始请求bot的信息
                 "lifecycle" => {
-                    handler_lifecycle(bot, api_tx).await;
+                    handler_lifecycle(api_tx).await;
                     return;
                 }
                 "heartbeat" => {
@@ -219,7 +219,7 @@ async fn handler_kovi_drop(listen: ListenFn) {
 }
 
 
-pub async fn handler_lifecycle(bot: Arc<RwLock<Bot>>, api_tx_: mpsc::Sender<ApiOneshot>) {
+pub async fn handler_lifecycle(api_tx_: mpsc::Sender<ApiOneshot>) {
     let api_msg = SendApi::new("get_login_info", json!({}), "kovi");
 
     #[allow(clippy::type_complexity)]
@@ -257,10 +257,4 @@ pub async fn handler_lifecycle(bot: Arc<RwLock<Bot>>, api_tx_: mpsc::Sender<ApiO
         "Bot connection successful，Nickname:{},ID:{}",
         self_name, self_id
     );
-
-    {
-        let mut bot = bot.write().unwrap();
-        bot.information.id = self_id;
-        bot.information.nickname = self_name;
-    }
 }

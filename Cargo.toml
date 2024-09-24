@@ -15,27 +15,27 @@ name = "kovi"
 path = "src/lib.rs"
 
 [dependencies]
-chrono = { version = "0.4", optional = true }
+chrono = "0.4"
 dialoguer = { version = "0.11.0", features = ["fuzzy-select"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 thiserror = "1"
 log = "0.4"
 anstyle = "1"
-kovi-macros = "0.3.0-rc1"
+kovi-macros = "0.3.0-rc3"
 regex = "1.10"
 env_logger = { version = "0.11", default-features = false, features = [
     "auto-color",
     "color",
 ], optional = true }
 tokio = { version = "1", features = ["full", "windows-sys"] }
-tokio-tungstenite = "0.23"
+tokio-tungstenite = "0.24.0"
 futures-util = "0.3"
 reqwest = { version = "0.12", features = ["blocking"] }
-toml = { version = "0.8", optional = true }
+toml = "0.8"
+croner = "2"
 
 
 [features]
-default = ["logger", "utils"]
-logger = ["env_logger", "chrono"]
-utils = ["toml"]
+default = ["logger"]
+logger = ["env_logger"]
