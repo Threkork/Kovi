@@ -88,6 +88,17 @@ impl From<String> for Message {
     }
 }
 
+impl From<&String> for Message {
+    fn from(v: &String) -> Self {
+        Message(vec![Segment {
+            type_: "text".to_string(),
+            data: json!({
+                "text":v,
+            }),
+        }])
+    }
+}
+
 #[cfg(feature = "cqstring")]
 impl From<CQMessage> for Message {
     fn from(v: CQMessage) -> Self {
