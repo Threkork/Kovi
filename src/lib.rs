@@ -10,14 +10,19 @@
 /// Everything about bots is inside
 pub mod bot;
 pub mod error;
-
+/// 提供一些方便的插件开发拓展
+pub mod expand;
+pub mod logger;
 /// 提供一些方便的插件开发函数
 pub mod utils;
 
-pub mod logger;
-
 pub use bot::message::Message;
+pub use bot::plugin_builder::event::AllMsgEvent;
+pub use bot::plugin_builder::event::AllNoticeEvent;
+pub use bot::plugin_builder::event::AllRequestEvent;
 pub use bot::plugin_builder::PluginBuilder;
+pub use bot::runtimebot::RuntimeBot;
+pub use bot::ApiReturn;
 pub use bot::Bot;
 pub use kovi_macros::plugin;
 
@@ -29,5 +34,4 @@ pub use regex;
 pub use serde;
 pub use serde_json;
 pub use tokio;
-
 pub use toml;

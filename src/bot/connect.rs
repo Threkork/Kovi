@@ -1,9 +1,4 @@
-use super::{
-    exit_and_eprintln,
-    handler::InternalEvent,
-    runtimebot::{onebot_api::ApiReturn, ApiOneshot},
-    Bot,
-};
+use super::{exit_and_eprintln, handler::InternalEvent, ApiOneshot, ApiReturn, Bot};
 use futures_util::{SinkExt, StreamExt};
 use log::{debug, warn};
 use reqwest::header::HeaderValue;
@@ -171,7 +166,7 @@ impl Bot {
                     let event_tx = event_tx.clone();
                     debug!("{}", api_msg);
 
-                    if api_msg.echo.as_str() != "None" {
+                    if &api_msg.echo != "None" {
                         api_tx_map
                             .lock()
                             .await

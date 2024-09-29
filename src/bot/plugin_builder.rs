@@ -1,5 +1,5 @@
 use super::run::PLUGIN_BUILDER;
-use super::runtimebot::ApiOneshot;
+use super::ApiOneshot;
 use super::{runtimebot::RuntimeBot, Bot};
 use croner::errors::CronError;
 use croner::Cron;
@@ -29,6 +29,10 @@ pub type NoArgsFn = Arc<dyn Fn() -> PinFut + Send + Sync + 'static>;
 pub enum ListenFn {
     MsgFn(AllMsgFn),
 
+    PrivateMsgFn(AllMsgFn),
+
+    GroupMsgFn(AllMsgFn),
+
     AdminMsgFn(AllMsgFn),
 
     AllNoticeFn(AllNoticeFn),
@@ -45,11 +49,13 @@ pub struct PluginBuilder {
 }
 
 impl PluginBuilder {
-    pub fn new(name: String, bot: Arc<RwLock<Bot>>, api_tx: mpsc::Sender<ApiOneshot>) -> Self {
-        let mut bot_lock = bot.write().unwrap();
-        bot_lock.plugins.insert(name.clone(), Vec::new());
-
+    pub(crate) fn new(
+        name: String,
+        bot: Arc<RwLock<Bot>>,
+        api_tx: mpsc::Sender<ApiOneshot>,
+    ) -> Self {
         let (main_admin, admin, host, port) = {
+            let bot_lock = bot.read().unwrap();
             (
                 bot_lock.information.main_admin,
                 bot_lock.information.admin.clone(),
@@ -57,8 +63,6 @@ impl PluginBuilder {
                 bot_lock.information.server.port,
             )
         };
-
-        drop(bot_lock);
 
         let runtime_bot = Arc::new(RuntimeBot {
             main_admin,
@@ -117,11 +121,13 @@ impl PluginBuilder {
         PLUGIN_BUILDER.with(|p| {
             let mut bot = p.runtime_bot.bot.write().unwrap();
 
-            let all_listen = bot.plugins.get_mut(&p.runtime_bot.plugin_name).unwrap();
+            let bot_plugin = bot.plugins.get_mut(&p.runtime_bot.plugin_name).unwrap();
 
-            all_listen.push(ListenFn::MsgFn(Arc::new(move |event| {
-                Box::pin(handler(event))
-            })));
+            bot_plugin
+                .listen
+                .push(ListenFn::MsgFn(Arc::new(move |event| {
+                    Box::pin(handler(event))
+                })));
         })
     }
 
@@ -137,11 +143,52 @@ impl PluginBuilder {
         PLUGIN_BUILDER.with(|p| {
             let mut bot = p.runtime_bot.bot.write().unwrap();
 
-            let all_listen = bot.plugins.get_mut(&p.runtime_bot.plugin_name).unwrap();
+            let bot_plugin = bot.plugins.get_mut(&p.runtime_bot.plugin_name).unwrap();
 
-            all_listen.push(ListenFn::AdminMsgFn(Arc::new(move |event| {
-                Box::pin(handler(event))
-            })));
+            bot_plugin
+                .listen
+                .push(ListenFn::AdminMsgFn(Arc::new(move |event| {
+                    Box::pin(handler(event))
+                })));
+        })
+    }
+
+    /// 注册管理员消息处理函数。
+    ///
+    /// 注册一个处理程序，用于处理接收到的消息事件（`AllMsgEvent`）。
+    pub fn on_private_msg<F, Fut>(handler: F)
+    where
+        F: Fn(Arc<AllMsgEvent>) -> Fut + Send + Sync + 'static,
+        Fut: Future<Output = ()> + Send + 'static,
+    {
+        PLUGIN_BUILDER.with(|p| {
+            let mut bot = p.runtime_bot.bot.write().unwrap();
+
+            let bot_plugin = bot.plugins.get_mut(&p.runtime_bot.plugin_name).unwrap();
+
+            bot_plugin
+                .listen
+                .push(ListenFn::PrivateMsgFn(Arc::new(move |event| {
+                    Box::pin(handler(event))
+                })));
+        })
+    }
+
+    pub fn on_group_msg<F, Fut>(handler: F)
+    where
+        F: Fn(Arc<AllMsgEvent>) -> Fut + Send + Sync + 'static,
+        Fut: Future<Output = ()> + Send + 'static,
+    {
+        PLUGIN_BUILDER.with(|p| {
+            let mut bot = p.runtime_bot.bot.write().unwrap();
+
+            let bot_plugin = bot.plugins.get_mut(&p.runtime_bot.plugin_name).unwrap();
+
+            bot_plugin
+                .listen
+                .push(ListenFn::GroupMsgFn(Arc::new(move |event| {
+                    Box::pin(handler(event))
+                })));
         })
     }
 
@@ -157,11 +204,13 @@ impl PluginBuilder {
         PLUGIN_BUILDER.with(|p| {
             let mut bot = p.runtime_bot.bot.write().unwrap();
 
-            let all_listen = bot.plugins.get_mut(&p.runtime_bot.plugin_name).unwrap();
+            let bot_plugin = bot.plugins.get_mut(&p.runtime_bot.plugin_name).unwrap();
 
-            all_listen.push(ListenFn::AllNoticeFn(Arc::new(move |event| {
-                Box::pin(handler(event))
-            })));
+            bot_plugin
+                .listen
+                .push(ListenFn::AllNoticeFn(Arc::new(move |event| {
+                    Box::pin(handler(event))
+                })));
         })
     }
 
@@ -176,11 +225,13 @@ impl PluginBuilder {
         PLUGIN_BUILDER.with(|p| {
             let mut bot = p.runtime_bot.bot.write().unwrap();
 
-            let all_listen = bot.plugins.get_mut(&p.runtime_bot.plugin_name).unwrap();
+            let bot_plugin = bot.plugins.get_mut(&p.runtime_bot.plugin_name).unwrap();
 
-            all_listen.push(ListenFn::AllRequestFn(Arc::new(move |event| {
-                Box::pin(handler(event))
-            })));
+            bot_plugin
+                .listen
+                .push(ListenFn::AllRequestFn(Arc::new(move |event| {
+                    Box::pin(handler(event))
+                })));
         })
     }
 
@@ -195,11 +246,13 @@ impl PluginBuilder {
         PLUGIN_BUILDER.with(|p| {
             let mut bot = p.runtime_bot.bot.write().unwrap();
 
-            let all_listen = bot.plugins.get_mut(&p.runtime_bot.plugin_name).unwrap();
+            let bot_plugin = bot.plugins.get_mut(&p.runtime_bot.plugin_name).unwrap();
 
-            all_listen.push(ListenFn::KoviEventDropFn(Arc::new(move || {
-                Box::pin(handler())
-            })));
+            bot_plugin
+                .listen
+                .push(ListenFn::KoviEventDropFn(Arc::new(move || {
+                    Box::pin(handler())
+                })));
         })
     }
 

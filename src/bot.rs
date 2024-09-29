@@ -4,8 +4,6 @@ use dialoguer::Input;
 use handler::InternalEvent;
 use log::{debug, error};
 use plugin_builder::{ListenFn, NoArgsFn};
-use runtimebot::onebot_api::ApiReturn;
-use runtimebot::ApiOneshot;
 use serde::{Deserialize, Serialize};
 use serde_json::{self, json, Value};
 use std::collections::HashMap;
@@ -15,20 +13,128 @@ use std::net::Ipv4Addr;
 use std::pin::Pin;
 use std::{fs, net::IpAddr, process::exit, sync::Arc};
 use tokio::sync::mpsc::{self, Sender};
-
-mod run;
+use tokio::sync::oneshot;
 
 mod connect;
 mod handler;
+mod run;
+
 pub mod message;
 pub mod plugin_builder;
 pub mod runtimebot;
+
+/// kovi的配置
+#[derive(Deserialize, Serialize)]
+pub struct KoviConf {
+    pub main_admin: i64,
+    pub admins: Vec<i64>,
+    pub server: Server,
+    pub debug: bool,
+}
+impl KoviConf {
+    pub fn new(main_admin: i64, admins: Option<Vec<i64>>, server: Server, debug: bool) -> Self {
+        KoviConf {
+            main_admin,
+            admins: admins.unwrap_or_default(),
+            server,
+            debug,
+        }
+    }
+}
+
+type KoviAsyncFn = dyn Fn() -> Pin<Box<dyn Future<Output = ()> + Send>> + Send + Sync + 'static;
+
+/// bot结构体
+#[derive(Clone)]
+pub struct Bot {
+    pub information: BotInformation,
+    pub plugins: HashMap<String, BotPlugin>,
+}
+
+#[derive(Clone)]
+pub struct BotPlugin {
+    pub version: String,
+    pub main: Arc<KoviAsyncFn>,
+    pub listen: Vec<ListenFn>,
+    pub cron: Vec<(Cron, NoArgsFn)>,
+}
+
+/// bot信息结构体
+#[derive(Debug, Clone)]
+pub struct BotInformation {
+    pub main_admin: i64,
+    pub admin: Vec<i64>,
+    pub server: Server,
+}
+/// server信息
+#[derive(Deserialize, Serialize, Debug, Clone)]
+pub struct Server {
+    pub host: IpAddr,
+    pub port: u16,
+    pub access_token: String,
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone)]
+pub struct SendApi {
+    pub action: String,
+    pub params: Value,
+    pub echo: String,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct ApiReturn {
+    pub status: String,
+    pub retcode: i32,
+    pub data: Value,
+    pub echo: String,
+}
+
+pub type ApiOneshot = (
+    SendApi,
+    Option<oneshot::Sender<Result<ApiReturn, ApiReturn>>>,
+);
+
+impl std::fmt::Display for ApiReturn {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "status: {}, retcode: {}, data: {}, echo: {}",
+            self.status, self.retcode, self.data, self.echo
+        )
+    }
+}
+
+impl std::fmt::Display for SendApi {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", serde_json::to_string(self).unwrap())
+    }
+}
+
+impl SendApi {
+    pub(crate) fn new(action: &str, params: Value, echo: &str) -> Self {
+        SendApi {
+            action: action.to_string(),
+            params,
+            echo: echo.to_string(),
+        }
+    }
+}
 
 impl Bot {
     /// 构建一个bot实例
     /// # Examples
     /// ```
-    /// let bot = Bot::build();
+    /// let conf = KoviConf::new(
+    ///     123456,
+    ///     None,
+    ///     Server {
+    ///         host: "127.0.0.1".parse(),
+    ///         port: 8081,
+    ///         access_token: "",
+    ///     },
+    ///     false,
+    /// );
+    /// let bot = Bot::build(conf);
     /// bot.run()
     /// ```
     pub fn build(conf: KoviConf) -> Bot {
@@ -38,24 +144,23 @@ impl Bot {
                 admin: conf.admins,
                 server: conf.server,
             },
-            main: Vec::new(),
             plugins: HashMap::new(),
-            cron_plugins: HashMap::new(),
         }
     }
 
-    pub fn mount_main<T>(&mut self, name: T, version: T, main: Arc<AsyncFn>)
+    pub fn mount_main<T>(&mut self, name: T, version: T, main: Arc<KoviAsyncFn>)
     where
         String: From<T>,
     {
         let name = String::from(name);
         let version = String::from(version);
-        let bot_main = BotMain {
-            name,
+        let bot_plugin = BotPlugin {
             version,
             main,
+            listen: Vec::new(),
+            cron: Vec::new(),
         };
-        self.main.push(bot_main)
+        self.plugins.insert(name, bot_plugin);
     }
 
     pub fn load_local_conf() -> KoviConf {
@@ -135,83 +240,7 @@ fn config_file_write_and_return() -> Result<KoviConf, std::io::Error> {
     Ok(config)
 }
 
-/// kovi的配置
-#[derive(Deserialize, Serialize)]
-pub struct KoviConf {
-    pub main_admin: i64,
-    pub admins: Vec<i64>,
-    pub server: Server,
-    pub debug: bool,
-}
-impl KoviConf {
-    pub fn new(main_admin: i64, admins: Option<Vec<i64>>, server: Server, debug: bool) -> Self {
-        KoviConf {
-            main_admin,
-            admins: if let Some(v) = admins { v } else { Vec::new() },
-            server,
-            debug,
-        }
-    }
-}
-
-type AsyncFn = dyn Fn() -> Pin<Box<dyn Future<Output = ()> + Send>> + Send + Sync + 'static;
-
-/// bot结构体
-#[derive(Clone)]
-pub struct Bot {
-    pub information: BotInformation,
-    pub main: Vec<BotMain>,
-    pub plugins: HashMap<String, Vec<ListenFn>>,
-    pub cron_plugins: HashMap<String, Vec<(Cron, NoArgsFn)>>,
-}
-
-#[derive(Clone)]
-pub struct BotMain {
-    pub name: String,
-    pub version: String,
-    pub main: Arc<AsyncFn>,
-}
-
-/// bot信息结构体
-#[derive(Debug, Clone)]
-pub struct BotInformation {
-    pub main_admin: i64,
-    pub admin: Vec<i64>,
-    pub server: Server,
-}
-/// server信息
-#[derive(Deserialize, Serialize, Debug, Clone)]
-pub struct Server {
-    pub host: IpAddr,
-    pub port: u16,
-    pub access_token: String,
-}
-
-#[derive(Debug, Serialize, Clone)]
-pub struct SendApi {
-    pub action: String,
-    pub params: Value,
-    pub echo: String,
-}
-
-impl std::fmt::Display for SendApi {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", serde_json::to_string(self).unwrap())
-    }
-}
-
-impl SendApi {
-    pub fn new(action: &str, params: Value, echo: &str) -> Self {
-        SendApi {
-            action: action.to_string(),
-            params,
-            echo: echo.to_string(),
-        }
-    }
-}
-
-
-async fn exit_and_eprintln<E>(e: E, event_tx: Sender<InternalEvent>)
+pub(crate) async fn exit_and_eprintln<E>(e: E, event_tx: Sender<InternalEvent>)
 where
     E: std::fmt::Display,
 {
@@ -241,4 +270,20 @@ macro_rules! build_bot {
             bot
         }
     };
+}
+
+
+#[test]
+fn build_bot() {
+    let conf = KoviConf::new(
+        123456,
+        None,
+        Server {
+            host: "127.0.0.1".parse().unwrap(),
+            port: 8081,
+            access_token: "".to_string(),
+        },
+        false,
+    );
+    let _ = Bot::build(conf);
 }

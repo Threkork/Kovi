@@ -1,7 +1,6 @@
 use super::{
     handler::{InternalEvent, KoviEvent},
-    runtimebot::ApiOneshot,
-    Bot,
+    ApiOneshot, Bot,
 };
 use crate::PluginBuilder;
 use log::error;
@@ -116,31 +115,18 @@ impl Bot {
         });
     }
 
+    // 运行所有main()
     async fn plugin_main(bot: Arc<RwLock<Self>>, api_tx: mpsc::Sender<ApiOneshot>) {
-        // 运行所有main()
-        let bot_main_job_clone = bot.clone();
-        let api_tx_main_job_clone = api_tx.clone();
+        let main_job_map = bot.read().unwrap().plugins.clone();
 
-        let mut main_job_vec = {
-            let bot = bot_main_job_clone.read().unwrap();
-            bot.main.clone()
-        };
-
-
-        while let Some(main_job) = main_job_vec.pop() {
-            let bot_main_job_clone = bot_main_job_clone.clone();
-            let api_tx = api_tx_main_job_clone.clone();
-
-            tokio::spawn(async move {
-                let plugin_builder =
-                    PluginBuilder::new(main_job.name.clone(), bot_main_job_clone.clone(), api_tx);
+        for (name, plugins) in main_job_map {
+            tokio::spawn({
+                let plugin_builder = PluginBuilder::new(name.clone(), bot.clone(), api_tx.clone());
 
                 // 异步运行 main()
-                PLUGIN_BUILDER
-                    .scope(plugin_builder, async {
-                        (main_job.main)().await;
-                    })
-                    .await
+                PLUGIN_BUILDER.scope(plugin_builder, async move {
+                    (plugins.main)().await;
+                })
             });
         }
     }

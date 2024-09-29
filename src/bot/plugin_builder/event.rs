@@ -1,8 +1,8 @@
 pub use msg_event::AllMsgEvent;
-use serde::{ Deserialize, Serialize};
+use serde::{Deserialize, Serialize};
 use serde_json::{self, Value};
 
-mod msg_event;
+pub mod msg_event;
 
 
 #[derive(Debug, Copy, Clone)]
@@ -44,11 +44,9 @@ pub struct AllNoticeEvent {
 
     /// 原始的onebot消息，已处理成json格式
     pub original_json: Value,
-    /// 原始未处理的onebot消息，为json格式，使用需处理
-    pub original_msg: String,
 }
 impl AllNoticeEvent {
-    pub fn new(msg: &str) -> Result<AllNoticeEvent, Box<dyn std::error::Error>> {
+    pub(crate) fn new(msg: &str) -> Result<AllNoticeEvent, Box<dyn std::error::Error>> {
         let temp: Value = serde_json::from_str(msg)?;
         let time = temp.get("time").unwrap().as_i64().unwrap();
         let self_id = temp.get("self_id").unwrap().as_i64().unwrap();
@@ -60,7 +58,6 @@ impl AllNoticeEvent {
             post_type,
             notice_type,
             original_json: temp,
-            original_msg: msg.to_string(),
         })
     }
 }
@@ -78,11 +75,9 @@ pub struct AllRequestEvent {
 
     /// 原始的onebot消息，已处理成json格式
     pub original_json: Value,
-    /// 原始未处理的onebot消息，为json格式，使用需处理
-    pub original_msg: String,
 }
 impl AllRequestEvent {
-    pub fn new(msg: &str) -> Result<AllRequestEvent, Box<dyn std::error::Error>> {
+    pub(crate) fn new(msg: &str) -> Result<AllRequestEvent, Box<dyn std::error::Error>> {
         let temp: Value = serde_json::from_str(msg)?;
         let time = temp.get("time").unwrap().as_i64().unwrap();
         let self_id = temp.get("self_id").unwrap().as_i64().unwrap();
@@ -94,7 +89,6 @@ impl AllRequestEvent {
             post_type,
             request_type,
             original_json: temp,
-            original_msg: msg.to_string(),
         })
     }
 }

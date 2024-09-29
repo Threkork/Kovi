@@ -20,7 +20,7 @@ pub enum KoviEvent {
 }
 
 impl Bot {
-    pub async fn handler_event(
+    pub(crate) async fn handler_event(
         bot: Arc<RwLock<Self>>,
         event: InternalEvent,
         api_tx: mpsc::Sender<ApiOneshot>,
@@ -40,7 +40,7 @@ impl Bot {
             KoviEvent::Drop => {
                 let mut task_vec = Vec::new();
                 for plugin in plugins.into_values() {
-                    for listen in plugin {
+                    for listen in plugin.listen {
                         // let event_clone = Arc::clone(&event);
                         task_vec.push(tokio::spawn(async move { handler_kovi_drop(listen).await }));
                     }
@@ -55,11 +55,7 @@ impl Bot {
         }
     }
 
-    pub async fn handler_msg(
-        bot: Arc<RwLock<Self>>,
-        msg: String,
-        api_tx: mpsc::Sender<ApiOneshot>,
-    ) {
+    async fn handler_msg(bot: Arc<RwLock<Self>>, msg: String, api_tx: mpsc::Sender<ApiOneshot>) {
         let msg_json: Value = serde_json::from_str(&msg).unwrap();
 
         debug!("{msg_json}");
@@ -139,7 +135,7 @@ impl Bot {
             OneBotEvent::Msg(e) => {
                 let e = Arc::new(e);
                 for plugin in plugins.into_values() {
-                    for listen in plugin {
+                    for listen in plugin.listen {
                         let event_clone = Arc::clone(&e);
                         let bot_clone = bot.clone();
                         tokio::spawn(handle_msg(listen, event_clone, bot_clone));
@@ -149,7 +145,7 @@ impl Bot {
             OneBotEvent::AllNotice(e) => {
                 let e = Arc::new(e);
                 for plugin in plugins.into_values() {
-                    for listen in plugin {
+                    for listen in plugin.listen {
                         let event_clone = Arc::clone(&e);
                         tokio::spawn(handler_notice(listen, event_clone));
                     }
@@ -158,7 +154,7 @@ impl Bot {
             OneBotEvent::AllRequest(e) => {
                 let e = Arc::new(e);
                 for plugin in plugins.into_values() {
-                    for listen in plugin {
+                    for listen in plugin.listen {
                         let event_clone = Arc::clone(&e);
                         tokio::spawn(handler_request(listen, event_clone));
                     }
@@ -186,40 +182,41 @@ async fn handle_msg(listen: ListenFn, e: Arc<AllMsgEvent>, bot: Arc<RwLock<Bot>>
                 handler(e).await;
             }
         }
+        ListenFn::PrivateMsgFn(handler) => {
+            if !e.is_group() {
+                handler(e).await;
+            }
+        }
+        ListenFn::GroupMsgFn(handler) => {
+            if e.is_group() {
+                handler(e).await;
+            }
+        }
         _ => {}
     }
 }
 
 async fn handler_notice(listen: ListenFn, e: Arc<AllNoticeEvent>) {
-    match listen {
-        ListenFn::AllNoticeFn(handler) => {
-            handler(e).await;
-        }
-        _ => {}
+    if let ListenFn::AllNoticeFn(handler) = listen {
+        handler(e).await;
     }
 }
 
 async fn handler_request(listen: ListenFn, e: Arc<AllRequestEvent>) {
-    match listen {
-        ListenFn::AllRequestFn(handler) => {
-            handler(e).await;
-        }
-        _ => {}
+    if let ListenFn::AllRequestFn(handler) = listen {
+        handler(e).await;
     }
 }
 
 async fn handler_kovi_drop(listen: ListenFn) {
-    match listen {
-        ListenFn::KoviEventDropFn(handler) => {
-            info!("A plugin is performing its shutdown tasks, please wait. 有插件正在进行结束工作，请稍候。");
-            handler().await;
-        }
-        _ => {}
+    if let ListenFn::KoviEventDropFn(handler) = listen {
+        info!("A plugin is performing its shutdown tasks, please wait. 有插件正在进行结束工作，请稍候。");
+        handler().await;
     }
 }
 
 
-pub async fn handler_lifecycle(api_tx_: mpsc::Sender<ApiOneshot>) {
+pub(crate) async fn handler_lifecycle(api_tx_: mpsc::Sender<ApiOneshot>) {
     let api_msg = SendApi::new("get_login_info", json!({}), "kovi");
 
     #[allow(clippy::type_complexity)]
