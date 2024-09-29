@@ -1,24 +1,32 @@
 use super::{
     handler::{InternalEvent, KoviEvent},
-    runtimebot::ApiMpsc,
-    Bot, BotMain,
+    ApiOneshot, Bot,
 };
 use crate::PluginBuilder;
 use log::error;
 use std::{
     process::exit,
-    sync::{
-        mpsc::{self, Sender},
-        Arc, RwLock,
-    },
-    thread,
+    sync::{Arc, RwLock},
 };
-use tokio::runtime::Runtime;
+use tokio::{
+    runtime::Runtime,
+    sync::mpsc::{self, Sender},
+};
+
+tokio::task_local! {
+    pub(crate) static PLUGIN_BUILDER: PluginBuilder;
+}
+
+// pub(crate) type MpscCronTask = (
+//     Cron,
+//     String,
+//     Arc<dyn Fn() -> Pin<Box<dyn Future<Output = ()> + Send>> + Send + Sync>,
+// );
 
 
 impl Bot {
     /// 运行bot
-    /// **注意此函数会阻塞**
+    /// **注意此函数会阻塞并且接管程序退出, 程序不会运行后续所有代码**
     pub fn run(self) {
         let (host, port, access_token) = (
             self.information.server.host,
@@ -32,35 +40,35 @@ impl Bot {
 
         rt.block_on(async {
             //处理连接，从msg_tx返回消息
-            let (event_tx, event_rx): (mpsc::Sender<InternalEvent>, mpsc::Receiver<InternalEvent>) =
-                mpsc::channel();
+            let (event_tx, mut event_rx): (
+                mpsc::Sender<InternalEvent>,
+                mpsc::Receiver<InternalEvent>,
+            ) = mpsc::channel(32);
+
             // 接收插件的api
-            let (api_tx, api_rx): (mpsc::Sender<ApiMpsc>, mpsc::Receiver<ApiMpsc>) =
-                mpsc::channel();
+            let (api_tx, api_rx): (mpsc::Sender<ApiOneshot>, mpsc::Receiver<ApiOneshot>) =
+                mpsc::channel(32);
+
+            // let (cron_tx, mut cron_rx): (mpsc::Sender<MpscCronTask>, mpsc::Receiver<MpscCronTask>) =
+            //     mpsc::channel(32);
 
             // 事件连接
             tokio::spawn({
                 let event_tx = event_tx.clone();
                 let access_token = access_token.clone();
-                async move {
-                    Self::ws_connect(host, port, access_token, event_tx).await;
-                }
+                Self::ws_connect(host, port, access_token, event_tx)
             });
 
             // drop检测
             tokio::spawn({
                 let event_tx = event_tx.clone();
-                async move {
-                    drop_check(event_tx, false).await;
-                }
+                drop_check(event_tx, false)
             });
 
             // api连接
             tokio::spawn({
                 let access_token = access_token.clone();
-                async move {
-                    Self::ws_send_api(host, port, access_token, api_rx, event_tx).await;
-                }
+                Self::ws_send_api(host, port, access_token, api_rx, event_tx)
             });
 
 
@@ -68,26 +76,31 @@ impl Bot {
             tokio::spawn({
                 let bot = bot.clone();
                 let api_tx = api_tx.clone();
-                async { Self::plugin_main(bot, api_tx).await }
+                Self::plugin_main(bot, api_tx)
             });
+
+            //定时任务
+            // tokio::spawn(async move {
+            //     while let Some(v) = cron_rx.recv().await {
+            //         let (cron, plugin_name, task) = v;
+            //         let now = chrono::Local::now();
+            //         let next = cron.find_next_occurrence(&now, false).unwrap();
+            //     }
+            // });
 
 
             let mut drop_task = None;
             //处理事件，每个事件都会来到这里
-            for event in event_rx {
+            while let Some(event) = event_rx.recv().await {
                 let api_tx = api_tx.clone();
                 let bot = bot.clone();
 
                 // Drop为关闭事件，所以要等待，其他的不等待
                 if let InternalEvent::KoviEvent(KoviEvent::Drop) = event {
-                    drop_task = Some(tokio::spawn(async {
-                        Self::handler_event(bot, event, api_tx).await;
-                    }));
+                    drop_task = Some(tokio::spawn(Self::handler_event(bot, event, api_tx)));
                     break;
                 } else {
-                    tokio::spawn(async {
-                        Self::handler_event(bot, event, api_tx).await;
-                    });
+                    tokio::spawn(Self::handler_event(bot, event, api_tx));
                 }
             }
             if let Some(drop_task) = drop_task {
@@ -102,57 +115,19 @@ impl Bot {
         });
     }
 
-    async fn plugin_main(bot: Arc<RwLock<Self>>, api_tx: mpsc::Sender<ApiMpsc>) {
-        // 运行所有main()
-        let bot_main_job_clone = bot.clone();
-        let api_tx_main_job_clone = api_tx.clone();
+    // 运行所有main()
+    async fn plugin_main(bot: Arc<RwLock<Self>>, api_tx: mpsc::Sender<ApiOneshot>) {
+        let main_job_map = bot.read().unwrap().plugins.clone();
 
-        let mut main_job_vec;
-        {
-            let bot = bot_main_job_clone.read().unwrap();
-            main_job_vec = bot.main.clone();
-        }
+        for (name, plugins) in main_job_map {
+            tokio::spawn({
+                let plugin_builder = PluginBuilder::new(name.clone(), bot.clone(), api_tx.clone());
 
-        //储存所有main()
-        let mut handler_main_job = Vec::new();
-
-        while let Some(main_job) = main_job_vec.pop() {
-            let bot_main_job_clone = bot_main_job_clone.clone();
-            let api_tx = api_tx_main_job_clone.clone();
-            handler_main_job.push(tokio::spawn(async move {
-                match main_job {
-                    BotMain::BotSyncMain(sync_main) => {
-                        let plugin_builder = PluginBuilder::new(
-                            sync_main.name.clone(),
-                            bot_main_job_clone.clone(),
-                            api_tx,
-                        );
-                        // 多线程运行 main()
-                        let join = thread::spawn(move || {
-                            (sync_main.main)(plugin_builder);
-                        });
-                        join.join().unwrap();
-                    }
-                    BotMain::BotAsyncMain(async_main) => {
-                        let plugin_builder = PluginBuilder::new(
-                            async_main.name.clone(),
-                            bot_main_job_clone.clone(),
-                            api_tx,
-                        );
-                        // 异步运行 main()
-                        (async_main.main)(plugin_builder).await;
-                    }
-                }
-            }));
-        }
-        //等待所有main()结束
-        for handler in handler_main_job {
-            match handler.await {
-                Ok(_) => {}
-                Err(e) => {
-                    error!("plugin main error: {}", e);
-                }
-            }
+                // 异步运行 main()
+                PLUGIN_BUILDER.scope(plugin_builder, async move {
+                    (plugins.main)().await;
+                })
+            });
         }
     }
 }
@@ -172,7 +147,6 @@ async fn drop_check(tx: Sender<InternalEvent>, exit: bool) {
         let mut sig_ctrl_close = windows::ctrl_close().unwrap();
         let mut sig_ctrl_logoff = windows::ctrl_logoff().unwrap();
         let mut sig_ctrl_shutdown = windows::ctrl_shutdown().unwrap();
-
         tokio::select! {
             _ = sig_ctrl_break.recv() => {}
             _ = sig_ctrl_c.recv() => {}
@@ -201,7 +175,9 @@ async fn drop_check(tx: Sender<InternalEvent>, exit: bool) {
         std::process::exit(1);
     }
 
-    tx.send(InternalEvent::KoviEvent(KoviEvent::Drop)).unwrap();
+    tx.send(InternalEvent::KoviEvent(KoviEvent::Drop))
+        .await
+        .unwrap();
 
     //递归运行本函数，第二次就会结束进程
     Box::pin(drop_check(tx, true)).await;

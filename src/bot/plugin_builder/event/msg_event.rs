@@ -1,12 +1,15 @@
 use super::{Anonymous, Sender};
 use crate::{
-    bot::{plugin_builder::event::Sex, runtimebot::ApiMpsc, SendApi},
+    bot::{plugin_builder::event::Sex, ApiOneshot, SendApi},
     Message,
 };
-use log::{debug, info};
+use log::{debug, error, info};
 use serde::Serialize;
 use serde_json::{self, json, Value};
-use std::sync::mpsc;
+use tokio::sync::mpsc;
+
+#[cfg(feature = "cqstring")]
+use crate::bot::message::{cq_to_arr, CQMessage};
 
 #[derive(Debug, Clone)]
 pub struct AllMsgEvent {
@@ -37,19 +40,19 @@ pub struct AllMsgEvent {
     /// 发送人信息
     pub sender: Sender,
 
-    /// 处理过的纯文本，如果是纯图片或无文本，此初为None
+    /// 处理过的纯文本，如果是纯图片或无文本，此处为None
     pub text: Option<String>,
     /// 处理过的文本，会解析成人类易读形式，里面会包含\[image\]\[face\]等解析后字符串
     pub human_text: String,
-    /// 原始未处理的onebot消息，为json格式，使用需处理
-    pub original_msg: String,
+    /// 原始的onebot消息，已处理成json格式
+    pub original_json: Value,
 
-    api_tx: mpsc::Sender<ApiMpsc>,
+    api_tx: mpsc::Sender<ApiOneshot>,
 }
 
 impl AllMsgEvent {
-    pub fn new(
-        api_tx: mpsc::Sender<ApiMpsc>,
+    pub(crate) fn new(
+        api_tx: mpsc::Sender<ApiOneshot>,
         msg: &str,
     ) -> Result<AllMsgEvent, Box<dyn std::error::Error>> {
         let temp: Value = serde_json::from_str(msg)?;
@@ -98,9 +101,20 @@ impl AllMsgEvent {
             None
         };
         let message = if temp_object["message"].is_array() {
-            Message::Array(temp_object["message"].as_array().unwrap().to_vec())
+            let v = temp_object["message"].as_array().unwrap().to_vec();
+            Message::from_vec_segment_value(v).unwrap()
         } else {
-            Message::CQString(temp_object["message"].as_str().unwrap().to_string())
+            #[cfg(feature = "cqstring")]
+            {
+                let str = temp_object["message"].as_str().unwrap().to_string();
+                cq_to_arr(CQMessage::from(str))
+            }
+            #[cfg(not(feature = "cqstring"))]
+            {
+                // 不开启cqstring特性，不能用。
+                error!("不开启cqstring feature，不能使用cq码");
+                panic!()
+            }
         };
         let anonymous: Option<Anonymous> =
             if temp_object.get("anonymous").is_none() || temp_object["anonymous"].is_null() {
@@ -112,38 +126,16 @@ impl AllMsgEvent {
 
 
         let text = {
-            fn text_push(vec: &Vec<Value>) -> Option<String> {
-                let mut text_vec = Vec::new();
-                for msg in vec {
-                    let type_ = msg.get("type").unwrap().as_str().unwrap();
-                    if type_ == "text" {
-                        text_vec.push(
-                            msg.get("data")
-                                .unwrap()
-                                .get("text")
-                                .unwrap()
-                                .as_str()
-                                .unwrap(),
-                        );
-                    };
-                }
-                if !text_vec.is_empty() {
-                    Some(text_vec.join("\n").trim().to_string())
-                } else {
-                    None
-                }
+            let mut text_vec = Vec::new();
+            for msg in message.iter() {
+                if msg.type_ == "text" {
+                    text_vec.push(msg.data.get("text").unwrap().as_str().unwrap());
+                };
             }
-
-            match message {
-                Message::Array(ref vec) => text_push(vec),
-                Message::CQString(_) => {
-                    let msg = message.clone().into_array();
-                    if let Message::Array(ref vec) = msg {
-                        text_push(vec)
-                    } else {
-                        panic!()
-                    }
-                }
+            if !text_vec.is_empty() {
+                Some(text_vec.join("\n").trim().to_string())
+            } else {
+                None
             }
         };
 
@@ -164,7 +156,7 @@ impl AllMsgEvent {
             sender,
             api_tx,
             text,
-            original_msg: msg.to_string(),
+            original_json: temp,
         };
         debug!("{:?}", event);
         Ok(event)
@@ -201,6 +193,7 @@ impl AllMsgEvent {
         }
     }
 
+    #[cfg(not(feature = "cqstring"))]
     /// 快速回复消息
     pub fn reply<T>(&self, msg: T)
     where
@@ -219,9 +212,38 @@ impl AllMsgEvent {
         };
         let human_msg = msg.to_human_string();
         info!("[reply] [to {message_type}{group_id}{nickname} {id}]: {human_msg}");
-        self.api_tx.send((send_msg, None)).unwrap();
+        let api_tx = self.api_tx.clone();
+        tokio::spawn(async move {
+            api_tx.send((send_msg, None)).await.unwrap();
+        });
     }
 
+    #[cfg(feature = "cqstring")]
+    /// 快速回复消息
+    pub fn reply<T>(&self, msg: T)
+    where
+        CQMessage: From<T>,
+        T: Serialize,
+    {
+        let msg = CQMessage::from(msg);
+        let send_msg = self.reply_builder(&msg, false);
+        let mut nickname = self.get_sender_nickname();
+        nickname.insert(0, ' ');
+        let id = &self.sender.user_id;
+        let message_type = &self.message_type;
+        let group_id = match &self.group_id {
+            Some(v) => format!(" {v}"),
+            None => "".to_string(),
+        };
+        let human_msg = Message::from(msg).to_human_string();
+        info!("[reply] [to {message_type}{group_id}{nickname} {id}]: {human_msg}");
+        let api_tx = self.api_tx.clone();
+        tokio::spawn(async move {
+            api_tx.send((send_msg, None)).await.unwrap();
+        });
+    }
+
+    #[cfg(not(feature = "cqstring"))]
     /// 快速回复消息并且**引用**
     pub fn reply_and_quote<T>(&self, msg: T)
     where
@@ -241,7 +263,36 @@ impl AllMsgEvent {
         };
         let human_msg = msg.to_human_string();
         info!("[reply] [to {message_type}{group_id}{nickname} {id}]: {human_msg}");
-        self.api_tx.send((send_msg, None)).unwrap();
+        let api_tx = self.api_tx.clone();
+        tokio::spawn(async move {
+            api_tx.send((send_msg, None)).await.unwrap();
+        });
+    }
+
+    #[cfg(feature = "cqstring")]
+    /// 快速回复消息并且**引用**
+    pub fn reply_and_quote<T>(&self, msg: T)
+    where
+        CQMessage: From<T>,
+        T: Serialize,
+    {
+        let msg = CQMessage::from(msg).add_reply(self.message_id);
+        let send_msg = self.reply_builder(&msg, false);
+
+        let mut nickname = self.get_sender_nickname();
+        nickname.insert(0, ' ');
+        let id = &self.sender.user_id;
+        let message_type = &self.message_type;
+        let group_id = match &self.group_id {
+            Some(v) => format!(" {v}"),
+            None => "".to_string(),
+        };
+        let human_msg = Message::from(msg).to_human_string();
+        info!("[reply] [to {message_type}{group_id}{nickname} {id}]: {human_msg}");
+        let api_tx = self.api_tx.clone();
+        tokio::spawn(async move {
+            api_tx.send((send_msg, None)).await.unwrap();
+        });
     }
 
 
@@ -262,11 +313,14 @@ impl AllMsgEvent {
         };
         let msg = String::from(msg);
         info!("[reply] [to {message_type}{group_id} {nickname} {id}]: {msg}");
-        self.api_tx.send((send_msg, None)).unwrap();
+        let api_tx = self.api_tx.clone();
+        tokio::spawn(async move {
+            api_tx.send((send_msg, None)).await.unwrap();
+        });
     }
 
 
-    /// 获取文本，如果没有文本则会返回空字符串，如果只需要借用，请使用 `borrow_text()`
+    /// 便捷获取文本，如果没有文本则会返回空字符串，如果只需要借用，请使用 `borrow_text()`
     pub fn get_text(&self) -> String {
         match self.text.clone() {
             Some(v) => v,
@@ -274,7 +328,7 @@ impl AllMsgEvent {
         }
     }
 
-    /// 获取发送者昵称
+    /// 便捷获取发送者昵称，如果无名字，此处为空字符串
     pub fn get_sender_nickname(&self) -> String {
         if let Some(v) = &self.sender.nickname {
             v.clone()
@@ -286,5 +340,9 @@ impl AllMsgEvent {
     /// 借用 event 的 text，只是做了一下self.text.as_deref()的包装
     pub fn borrow_text(&self) -> Option<&str> {
         self.text.as_deref()
+    }
+
+    pub fn is_group(&self) -> bool {
+        self.group_id.is_some()
     }
 }

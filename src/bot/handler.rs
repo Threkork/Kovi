@@ -5,10 +5,8 @@ use plugin_builder::{
     ListenFn,
 };
 use serde_json::{json, Value};
-use std::{
-    sync::{mpsc, Arc, RwLock},
-    thread,
-};
+use std::sync::{Arc, RwLock};
+use tokio::sync::oneshot;
 
 
 /// Kovi内部事件
@@ -22,6 +20,17 @@ pub enum KoviEvent {
 }
 
 impl Bot {
+    pub(crate) async fn handler_event(
+        bot: Arc<RwLock<Self>>,
+        event: InternalEvent,
+        api_tx: mpsc::Sender<ApiOneshot>,
+    ) {
+        match event {
+            InternalEvent::KoviEvent(event) => Self::handle_kovi_event(bot, event).await,
+            InternalEvent::OneBotEvent(msg) => Self::handler_msg(bot, msg, api_tx).await,
+        }
+    }
+
     async fn handle_kovi_event(bot: Arc<RwLock<Self>>, event: KoviEvent) {
         let plugins = bot.read().unwrap().plugins.clone();
         // let event = Arc::new(event);
@@ -31,7 +40,7 @@ impl Bot {
             KoviEvent::Drop => {
                 let mut task_vec = Vec::new();
                 for plugin in plugins.into_values() {
-                    for listen in plugin {
+                    for listen in plugin.listen {
                         // let event_clone = Arc::clone(&event);
                         task_vec.push(tokio::spawn(async move { handler_kovi_drop(listen).await }));
                     }
@@ -45,19 +54,8 @@ impl Bot {
             }
         }
     }
-    pub async fn handler_event(
-        bot: Arc<RwLock<Self>>,
-        event: InternalEvent,
-        api_tx: mpsc::Sender<ApiMpsc>,
-    ) {
-        match event {
-            InternalEvent::KoviEvent(event) => Self::handle_kovi_event(bot, event).await,
-            InternalEvent::OneBotEvent(msg) => Self::handler_msg(bot, msg, api_tx),
-        }
-    }
 
-
-    pub fn handler_msg(bot: Arc<RwLock<Self>>, msg: String, api_tx: mpsc::Sender<ApiMpsc>) {
+    async fn handler_msg(bot: Arc<RwLock<Self>>, msg: String, api_tx: mpsc::Sender<ApiOneshot>) {
         let msg_json: Value = serde_json::from_str(&msg).unwrap();
 
         debug!("{msg_json}");
@@ -66,7 +64,7 @@ impl Bot {
             match meta_event_type.as_str().unwrap() {
                 // 生命周期一开始请求bot的信息
                 "lifecycle" => {
-                    handler_lifecycle(bot, api_tx);
+                    handler_lifecycle(api_tx).await;
                     return;
                 }
                 "heartbeat" => {
@@ -137,7 +135,7 @@ impl Bot {
             OneBotEvent::Msg(e) => {
                 let e = Arc::new(e);
                 for plugin in plugins.into_values() {
-                    for listen in plugin {
+                    for listen in plugin.listen {
                         let event_clone = Arc::clone(&e);
                         let bot_clone = bot.clone();
                         tokio::spawn(handle_msg(listen, event_clone, bot_clone));
@@ -147,7 +145,7 @@ impl Bot {
             OneBotEvent::AllNotice(e) => {
                 let e = Arc::new(e);
                 for plugin in plugins.into_values() {
-                    for listen in plugin {
+                    for listen in plugin.listen {
                         let event_clone = Arc::clone(&e);
                         tokio::spawn(handler_notice(listen, event_clone));
                     }
@@ -156,7 +154,7 @@ impl Bot {
             OneBotEvent::AllRequest(e) => {
                 let e = Arc::new(e);
                 for plugin in plugins.into_values() {
-                    for listen in plugin {
+                    for listen in plugin.listen {
                         let event_clone = Arc::clone(&e);
                         tokio::spawn(handler_request(listen, event_clone));
                     }
@@ -169,32 +167,10 @@ impl Bot {
 async fn handle_msg(listen: ListenFn, e: Arc<AllMsgEvent>, bot: Arc<RwLock<Bot>>) {
     match listen {
         ListenFn::MsgFn(handler) => {
-            let e_clone = Arc::clone(&e);
-            thread::spawn(move || {
-                handler(&e_clone);
-            });
-        }
-        ListenFn::MsgAsyncFn(handler) => {
             handler(e).await;
         }
 
         ListenFn::AdminMsgFn(handler) => {
-            let e_clone = Arc::clone(&e);
-            let bot_clone = Arc::clone(&bot);
-            thread::spawn(move || {
-                let user_id = e_clone.user_id;
-                let admin_vec = {
-                    let bot = bot_clone.read().unwrap();
-                    let mut admin_vec = bot.information.admin.clone();
-                    admin_vec.push(bot.information.main_admin);
-                    admin_vec
-                };
-                if admin_vec.contains(&user_id) {
-                    handler(&e_clone);
-                }
-            });
-        }
-        ListenFn::AdminMsgAsyncFn(handler) => {
             let user_id = e.user_id;
             let admin_vec = {
                 let bot = bot.read().unwrap();
@@ -206,73 +182,61 @@ async fn handle_msg(listen: ListenFn, e: Arc<AllMsgEvent>, bot: Arc<RwLock<Bot>>
                 handler(e).await;
             }
         }
+        ListenFn::PrivateMsgFn(handler) => {
+            if !e.is_group() {
+                handler(e).await;
+            }
+        }
+        ListenFn::GroupMsgFn(handler) => {
+            if e.is_group() {
+                handler(e).await;
+            }
+        }
         _ => {}
     }
 }
 
 async fn handler_notice(listen: ListenFn, e: Arc<AllNoticeEvent>) {
-    match listen {
-        ListenFn::AllNoticeFn(handler) => {
-            let e_clone = Arc::clone(&e);
-            thread::spawn(move || {
-                handler(&e_clone);
-            });
-        }
-        ListenFn::AllNoticeAsyncFn(handler) => {
-            handler(e).await;
-        }
-        _ => {}
+    if let ListenFn::AllNoticeFn(handler) = listen {
+        handler(e).await;
     }
 }
 
 async fn handler_request(listen: ListenFn, e: Arc<AllRequestEvent>) {
-    match listen {
-        ListenFn::AllRequestFn(handler) => {
-            let e_clone = Arc::clone(&e);
-            thread::spawn(move || {
-                handler(&e_clone);
-            });
-        }
-        ListenFn::AllRequestAsyncFn(handler) => {
-            handler(e).await;
-        }
-        _ => {}
+    if let ListenFn::AllRequestFn(handler) = listen {
+        handler(e).await;
     }
 }
 
 async fn handler_kovi_drop(listen: ListenFn) {
-    match listen {
-        ListenFn::KoviEventDropFn(handler) => {
-            info!("A plugin is performing its shutdown tasks, please wait. 有插件正在进行结束工作，请稍候。");
-            let join = thread::spawn(move || {
-                handler();
-            });
-            join.join().unwrap();
-        }
-        ListenFn::KoviEventDropAsyncFn(handler) => {
-            info!("A plugin is performing its shutdown tasks, please wait. 有插件正在进行结束工作，请稍候。");
-            handler().await;
-        }
-        _ => {}
+    if let ListenFn::KoviEventDropFn(handler) = listen {
+        info!("A plugin is performing its shutdown tasks, please wait. 有插件正在进行结束工作，请稍候。");
+        handler().await;
     }
 }
 
 
-pub fn handler_lifecycle(bot: Arc<RwLock<Bot>>, api_tx_: mpsc::Sender<ApiMpsc>) {
+pub(crate) async fn handler_lifecycle(api_tx_: mpsc::Sender<ApiOneshot>) {
     let api_msg = SendApi::new("get_login_info", json!({}), "kovi");
 
     #[allow(clippy::type_complexity)]
     let (api_tx, api_rx): (
-        mpsc::Sender<Result<ApiReturn, ApiReturn>>,
-        mpsc::Receiver<Result<ApiReturn, ApiReturn>>,
-    ) = mpsc::channel();
+        oneshot::Sender<Result<ApiReturn, ApiReturn>>,
+        oneshot::Receiver<Result<ApiReturn, ApiReturn>>,
+    ) = oneshot::channel();
 
-    api_tx_.send((api_msg, Some(api_tx))).unwrap();
+    api_tx_.send((api_msg, Some(api_tx))).await.unwrap();
 
-    let receive = api_rx.recv().unwrap();
+    let receive = match api_rx.await {
+        Ok(v) => v,
+        Err(e) => {
+            error!("Lifecycle Error, get bot info failed: {}", e);
+            return;
+        }
+    };
 
     let self_info_value = match receive {
-        Ok(msg_result) => msg_result,
+        Ok(v) => v,
         Err(e) => {
             error!("Lifecycle Error, get bot info failed: {}", e);
             return;
@@ -290,11 +254,4 @@ pub fn handler_lifecycle(bot: Arc<RwLock<Bot>>, api_tx_: mpsc::Sender<ApiMpsc>) 
         "Bot connection successful，Nickname:{},ID:{}",
         self_name, self_id
     );
-
-    {
-        let mut bot = bot.write().unwrap();
-        bot.information.id = self_id;
-        bot.information.nickname = self_name;
-        bot.life.status = LifeStatus::Running;
-    }
 }
