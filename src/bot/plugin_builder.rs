@@ -320,9 +320,21 @@ impl PluginBuilder {
     }
 }
 
-
 #[macro_export]
-macro_rules! async_move  {
+macro_rules! async_move {
+    // 匹配没有事件参数的情况
+    (; $($var:ident),*; $($body:tt)*) => {
+        {
+            $(let $var = $var.clone();)*
+            move || {
+                $(let $var = $var.clone();)*
+                async move
+                    $($body)*
+            }
+        }
+    };
+
+    // 匹配有事件参数的情况
     ($event:ident; $($var:ident),*; $($body:tt)*) => {
         {
             $(let $var = $var.clone();)*
