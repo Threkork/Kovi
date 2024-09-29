@@ -639,17 +639,18 @@ impl RuntimeBot {
     /// `flag`: 加群请求的 flag（需从上报的数据中获得）
     ///
     /// `type`: add 或 invite，请求类型（需要和上报消息中的 sub_type 或 type 字段相符），由于不同服务端实现不一样，Kovi 提供一个枚举，使用需注意服务端要求是 sub_type 还是 type
+    ///
     /// `approve`: 是否同意请求／邀请
     ///
     /// `remark`: 可为空, 拒绝理由（仅在拒绝时有效）
     pub fn set_group_add_request(
         &self,
         flag: &str,
-        r#type: AddRequestType,
+        type_: AddRequestType,
         approve: bool,
         reason: &str,
     ) {
-        let (type_, type_value) = match r#type {
+        let (type_, type_value) = match type_ {
             AddRequestType::SubType(v) => ("sub_type", v),
             AddRequestType::Type(v) => ("type", v),
         };

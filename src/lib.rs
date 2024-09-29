@@ -24,6 +24,7 @@ pub use bot::plugin_builder::PluginBuilder;
 pub use bot::runtimebot::RuntimeBot;
 pub use bot::ApiReturn;
 pub use bot::Bot;
+pub use error::Error;
 pub use kovi_macros::plugin;
 
 pub use chrono;

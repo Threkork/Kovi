@@ -14,6 +14,22 @@ pub struct Segment {
     pub data: Value,
 }
 
+impl Segment {
+    pub fn new(type_: &str, data: Value) -> Self {
+        Segment {
+            type_: type_.to_string(),
+            data,
+        }
+    }
+}
+
+impl PartialEq for Segment {
+    fn eq(&self, other: &Self) -> bool {
+        self.type_ == other.type_ && self.data == other.data
+    }
+}
+
+
 /// 消息
 ///
 /// **不保证 data 里的 Value 格式是否正确，需要自行检查**
@@ -61,10 +77,28 @@ impl From<&str> for Message {
     }
 }
 
+impl From<String> for Message {
+    fn from(v: String) -> Self {
+        Message(vec![Segment {
+            type_: "text".to_string(),
+            data: json!({
+                "text":v,
+            }),
+        }])
+    }
+}
+
 #[cfg(feature = "cqstring")]
 impl From<CQMessage> for Message {
     fn from(v: CQMessage) -> Self {
         cq_to_arr(v)
+    }
+}
+
+
+impl PartialEq for Message {
+    fn eq(&self, other: &Self) -> bool {
+        self.0 == other.0
     }
 }
 
@@ -88,10 +122,14 @@ impl Message {
         if let Some(v) = v.as_array() {
             match Message::from_vec_segment_value(v.clone()) {
                 Ok(msg) => return Ok(msg),
-                Err(err) => return Err(Error::JsonError(err.to_string())),
+                Err(err) => return Err(Error::ParseError(err.to_string())),
             };
         }
-        Err(Error::JsonError(
+        if let Some(v) = v.as_str() {
+            return Ok(Message::from(v));
+        }
+
+        Err(Error::ParseError(
             "Message::from_value only accept array".to_string(),
         ))
     }
@@ -378,4 +416,56 @@ fn __cq_to_arr() {
     let cq = "左边的消息[CQ:face,id=178]看看我刚拍的照片[CQ:image,file=123.jpg]右边的消息";
     let msg = cq_to_arr(cq.into());
     println!("{:?}", msg)
+}
+
+#[test]
+fn check_msg() {
+    let msg: Message = Message::from_value(json!(
+        [
+            {
+                "type":"text",
+                "data":{
+                    "text":"Some msg"
+                }
+            },
+            {
+                "type":"face",
+                "data":{
+                    "id":"0"
+                }
+            },
+        ]
+    ))
+    .unwrap();
+    let text_value: Segment = serde_json::from_value(json!({
+        "type":"text",
+        "data":{
+            "text":"Some msg"
+        }
+    }))
+    .unwrap();
+    let face_value: Segment = serde_json::from_value(json!({
+        "type":"face",
+        "data":{
+            "id":"0"
+        }
+    }))
+    .unwrap();
+    assert_eq!(msg.get("text")[0], text_value);
+    assert_eq!(msg.get("face")[0], face_value);
+
+    let msg1: Message = Message::from("Hi");
+    let msg2: Message = Message::from_value(json!(
+        [
+            {
+                "type":"text",
+                "data":{
+                    "text":"Some msg"
+                }
+            }
+        ]
+    ))
+    .unwrap();
+    assert!(msg1.contains("text"));
+    assert!(msg2.contains("text"));
 }
