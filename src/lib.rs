@@ -31,8 +31,10 @@ pub use chrono;
 pub use croner;
 pub use futures_util;
 pub use log;
-pub use regex;
 pub use serde;
 pub use serde_json;
 pub use tokio;
 pub use toml;
+
+#[cfg(feature = "cqstring")]
+pub use regex;

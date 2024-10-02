@@ -34,7 +34,7 @@ pub struct RuntimeBot {
     pub api_tx: mpsc::Sender<ApiOneshot>,
 }
 
-pub(crate) fn rand_echo() -> String {
+pub fn rand_echo() -> String {
     let mut rng = rand::thread_rng();
     let mut s = String::new();
     s.push_str(&chrono::Utc::now().timestamp().to_string());
