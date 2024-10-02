@@ -124,9 +124,7 @@ impl Bot {
                 let plugin_builder = PluginBuilder::new(name.clone(), bot.clone(), api_tx.clone());
 
                 // 异步运行 main()
-                PLUGIN_BUILDER.scope(plugin_builder, async move {
-                    (plugins.main)().await;
-                })
+                PLUGIN_BUILDER.scope(plugin_builder, (plugins.main)())
             });
         }
     }
