@@ -1,6 +1,6 @@
 [package]
 name = "kovi"
-version = "0.8.1"
+version = "0.8.2-rc1"
 edition = "2021"
 description = "A OneBot V11 bot plugin framework"
 license = "MPL-2.0"
@@ -8,7 +8,7 @@ authors = ["Threkork <threkork@hotmail.com>"]
 repository = "https://github.com/Threkork/Kovi"
 readme = "README_Cargo.md"
 documentation = "https://threkork.github.io/kovi-doc/"
-keywords = ["kovi"]
+keywords = ["kovi", "onebot", "framework"]
 
 [lib]
 name = "kovi"

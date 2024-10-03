@@ -10,8 +10,6 @@
 /// Everything about bots is inside
 pub mod bot;
 pub mod error;
-/// 提供一些方便的插件开发拓展
-pub mod expand;
 pub mod logger;
 /// 提供一些方便的插件开发函数
 pub mod utils;
