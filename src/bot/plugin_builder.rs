@@ -1,5 +1,5 @@
 use super::run::PLUGIN_BUILDER;
-use super::ApiOneshot;
+use super::ApiAndOneshot;
 use super::{runtimebot::RuntimeBot, Bot};
 use croner::errors::CronError;
 use croner::Cron;
@@ -52,7 +52,7 @@ impl PluginBuilder {
     pub(crate) fn new(
         name: String,
         bot: Arc<RwLock<Bot>>,
-        api_tx: mpsc::Sender<ApiOneshot>,
+        api_tx: mpsc::Sender<ApiAndOneshot>,
     ) -> Self {
         let (main_admin, admin, host, port) = {
             let bot_lock = bot.read().unwrap();

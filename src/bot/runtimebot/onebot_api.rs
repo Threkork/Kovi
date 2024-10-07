@@ -1,10 +1,10 @@
 use super::RuntimeBot;
-use crate::bot::ApiReturn;
 use crate::bot::{message::Message, runtimebot::rand_echo, SendApi};
+use crate::bot::{ApiAndOneshot, ApiReturn};
 use log::{error, info};
 use serde::Serialize;
 use serde_json::{json, Value};
-use tokio::sync::oneshot;
+use tokio::sync::{mpsc, oneshot};
 
 #[cfg(feature = "cqstring")]
 use crate::bot::message::CQMessage;
@@ -28,7 +28,11 @@ pub enum AddRequestType<'a> {
 impl RuntimeBot {
     ///发送群组消息, 并返回消息ID
     #[cfg(not(feature = "cqstring"))]
-    pub async fn send_group_msg_return<T>(&self, group_id: i64, msg: T) -> Result<i32, ApiReturn>
+    pub fn send_group_msg_return<T>(
+        &self,
+        group_id: i64,
+        msg: T,
+    ) -> impl std::future::Future<Output = Result<i32, ApiReturn>>
     where
         Message: From<T>,
         T: Serialize,
@@ -46,18 +50,30 @@ impl RuntimeBot {
 
         let msg = Message::from(msg);
         let group_id = &group_id;
-        info!("[send] [to group {group_id}]: {}", msg.to_human_string());
-        let r = self.send_and_return(send_api).await;
-        match r {
-            Ok(v) => Ok(v.data.get("message_id").unwrap().as_i64().unwrap() as i32),
 
-            Err(v) => Err(v),
+        info!("[send] [to group {group_id}]: {}", msg.to_human_string());
+
+
+        let api_rx = send(&self.api_tx, send_api);
+
+        async move {
+            let r = _and_return(api_rx).await;
+
+            match r {
+                Ok(v) => Ok(v.data.get("message_id").unwrap().as_i64().unwrap() as i32),
+
+                Err(v) => Err(v),
+            }
         }
     }
 
     ///发送群组消息, 并返回消息ID
     #[cfg(feature = "cqstring")]
-    pub async fn send_group_msg_return<T>(&self, group_id: i64, msg: T) -> Result<i32, ApiReturn>
+    pub fn send_group_msg_return<T>(
+        &self,
+        group_id: i64,
+        msg: T,
+    ) -> impl std::future::Future<Output = Result<i32, ApiReturn>>
     where
         CQMessage: From<T>,
         T: Serialize,
@@ -79,17 +95,26 @@ impl RuntimeBot {
             "[send] [to group {group_id}]: {}",
             Message::from(msg).to_human_string()
         );
-        let r = self.send_and_return(send_api).await;
-        match r {
-            Ok(v) => Ok(v.data.get("message_id").unwrap().as_i64().unwrap() as i32),
 
-            Err(v) => Err(v),
+        let api_rx = send(&self.api_tx, send_api);
+
+        async move {
+            let r = _and_return(api_rx).await;
+            match r {
+                Ok(v) => Ok(v.data.get("message_id").unwrap().as_i64().unwrap() as i32),
+
+                Err(v) => Err(v),
+            }
         }
     }
 
     #[cfg(not(feature = "cqstring"))]
     ///发送私聊消息, 并返回消息ID
-    pub async fn send_private_msg_return<T>(&self, user_id: i64, msg: T) -> Result<i32, ApiReturn>
+    pub fn send_private_msg_return<T>(
+        &self,
+        user_id: i64,
+        msg: T,
+    ) -> impl std::future::Future<Output = Result<i32, ApiReturn>>
     where
         Message: From<T>,
         T: Serialize,
@@ -106,17 +131,27 @@ impl RuntimeBot {
         let msg = Message::from(msg);
         let user_id = &user_id;
         info!("[send] [to private {user_id}]: {}", msg.to_human_string());
-        let r = self.send_and_return(send_api).await;
-        match r {
-            Ok(v) => Ok(v.data.get("message_id").unwrap().as_i64().unwrap() as i32),
 
-            Err(v) => Err(v),
+        let api_rx = send(&self.api_tx, send_api);
+
+        async move {
+            let r = _and_return(api_rx).await;
+
+            match r {
+                Ok(v) => Ok(v.data.get("message_id").unwrap().as_i64().unwrap() as i32),
+
+                Err(v) => Err(v),
+            }
         }
     }
 
     #[cfg(feature = "cqstring")]
     ///发送私聊消息, 并返回消息ID
-    pub async fn send_private_msg_return<T>(&self, user_id: i64, msg: T) -> Result<i32, ApiReturn>
+    pub fn send_private_msg_return<T>(
+        &self,
+        user_id: i64,
+        msg: T,
+    ) -> impl std::future::Future<Output = Result<i32, ApiReturn>>
     where
         CQMessage: From<T>,
         T: Serialize,
@@ -136,34 +171,49 @@ impl RuntimeBot {
             "[send] [to private {user_id}]: {}",
             Message::from(msg).to_human_string()
         );
-        let r = self.send_and_return(send_api).await;
-        match r {
-            Ok(v) => Ok(v.data.get("message_id").unwrap().as_i64().unwrap() as i32),
 
-            Err(v) => Err(v),
+        let api_rx = send(&self.api_tx, send_api);
+
+        async move {
+            let r = _and_return(api_rx).await;
+            match r {
+                Ok(v) => Ok(v.data.get("message_id").unwrap().as_i64().unwrap() as i32),
+
+                Err(v) => Err(v),
+            }
         }
     }
 
     /// 是否能发送图片
-    pub async fn can_send_image(&self) -> Result<bool, ApiReturn> {
+    pub fn can_send_image(&self) -> impl std::future::Future<Output = Result<bool, ApiReturn>> {
         let send_api = SendApi::new("can_send_image", json!({}), &rand_echo());
 
-        let r = self.send_and_return(send_api).await;
-        match r {
-            Ok(v) => Ok(v.data.get("yes").unwrap().as_bool().unwrap()),
+        let api_rx = send(&self.api_tx, send_api);
 
-            Err(v) => Err(v),
+        async move {
+            let r = _and_return(api_rx).await;
+            match r {
+                Ok(v) => Ok(v.data.get("yes").unwrap().as_bool().unwrap()),
+
+                Err(v) => Err(v),
+            }
         }
     }
 
-    /// 是否能发送语音
-    pub async fn can_send_record(&self) -> Result<bool, ApiReturn> {
-        let send_api = SendApi::new("can_send_record", json!({}), &rand_echo());
-        let r = self.send_and_return(send_api).await;
-        match r {
-            Ok(v) => Ok(v.data.get("yes").unwrap().as_bool().unwrap()),
 
-            Err(v) => Err(v),
+    /// 是否能发送语音
+    pub fn can_send_record(&self) -> impl std::future::Future<Output = Result<bool, ApiReturn>> {
+        let send_api = SendApi::new("can_send_record", json!({}), &rand_echo());
+
+        let api_rx = send(&self.api_tx, send_api);
+
+        async move {
+            let r = _and_return(api_rx).await;
+            match r {
+                Ok(v) => Ok(v.data.get("yes").unwrap().as_bool().unwrap()),
+
+                Err(v) => Err(v),
+            }
         }
     }
 }
@@ -190,10 +240,7 @@ impl RuntimeBot {
         let msg = Message::from(msg);
         let group_id = &group_id;
         info!("[send] [to group {group_id}]: {}", msg.to_human_string());
-        let api_tx = self.api_tx.clone();
-        tokio::spawn(async move {
-            api_tx.send((send_api, None)).await.unwrap();
-        });
+        send_not_return(&self.api_tx, send_api);
     }
 
     #[cfg(feature = "cqstring")]
@@ -219,10 +266,7 @@ impl RuntimeBot {
             "[send] [to group {group_id}]: {}",
             Message::from(msg).to_human_string()
         );
-        let api_tx = self.api_tx.clone();
-        tokio::spawn(async move {
-            api_tx.send((send_api, None)).await.unwrap();
-        });
+        send_not_return(&self.api_tx, send_api);
     }
 
     #[cfg(not(feature = "cqstring"))]
@@ -246,10 +290,7 @@ impl RuntimeBot {
         let msg = Message::from(msg);
         let user_id = &user_id;
         info!("[send] [to private {user_id}]: {}", msg.to_human_string());
-        let api_tx = self.api_tx.clone();
-        tokio::spawn(async move {
-            api_tx.send((send_api, None)).await.unwrap();
-        });
+        send_not_return(&self.api_tx, send_api);
     }
 
     #[cfg(feature = "cqstring")]
@@ -276,10 +317,7 @@ impl RuntimeBot {
             "[send] [to private {user_id}]: {}",
             Message::from(msg).to_human_string()
         );
-        let api_tx = self.api_tx.clone();
-        tokio::spawn(async move {
-            api_tx.send((send_api, None)).await.unwrap();
-        });
+        send_not_return(&self.api_tx, send_api);
     }
 
     /// 撤回消息
@@ -296,10 +334,7 @@ impl RuntimeBot {
             "None",
         );
 
-        let api_tx = self.api_tx.clone();
-        tokio::spawn(async move {
-            api_tx.send((send_api, None)).await.unwrap();
-        });
+        send_not_return(&self.api_tx, send_api);
     }
 
     /// 点赞，有些服务端会返回点赞失败，所以需要返回值的话请使用 send_like_return()
@@ -318,10 +353,7 @@ impl RuntimeBot {
             "None",
         );
 
-        let api_tx = self.api_tx.clone();
-        tokio::spawn(async move {
-            api_tx.send((send_api, None)).await.unwrap();
-        });
+        send_not_return(&self.api_tx, send_api);
     }
 
     /// 群组踢人
@@ -343,10 +375,7 @@ impl RuntimeBot {
             "None",
         );
 
-        let api_tx = self.api_tx.clone();
-        tokio::spawn(async move {
-            api_tx.send((send_api, None)).await.unwrap();
-        });
+        send_not_return(&self.api_tx, send_api);
     }
 
     /// 群组单人禁言
@@ -369,10 +398,7 @@ impl RuntimeBot {
             "None",
         );
 
-        let api_tx = self.api_tx.clone();
-        tokio::spawn(async move {
-            api_tx.send((send_api, None)).await.unwrap();
-        });
+        send_not_return(&self.api_tx, send_api);
     }
     /// 群组匿名用户禁言
     ///
@@ -400,10 +426,7 @@ impl RuntimeBot {
         );
 
 
-        let api_tx = self.api_tx.clone();
-        tokio::spawn(async move {
-            api_tx.send((send_api, None)).await.unwrap();
-        });
+        send_not_return(&self.api_tx, send_api);
     }
     /// 群组匿名用户禁言
     ///
@@ -426,10 +449,7 @@ impl RuntimeBot {
         );
 
 
-        let api_tx = self.api_tx.clone();
-        tokio::spawn(async move {
-            api_tx.send((send_api, None)).await.unwrap();
-        });
+        send_not_return(&self.api_tx, send_api);
     }
 
     /// 群组全员禁言
@@ -450,10 +470,7 @@ impl RuntimeBot {
         );
 
 
-        let api_tx = self.api_tx.clone();
-        tokio::spawn(async move {
-            api_tx.send((send_api, None)).await.unwrap();
-        });
+        send_not_return(&self.api_tx, send_api);
     }
 
     /// 群组设置管理员
@@ -476,10 +493,7 @@ impl RuntimeBot {
             "None",
         );
 
-        let api_tx = self.api_tx.clone();
-        tokio::spawn(async move {
-            api_tx.send((send_api, None)).await.unwrap();
-        });
+        send_not_return(&self.api_tx, send_api);
     }
     /// 群组匿名
     ///
@@ -499,10 +513,7 @@ impl RuntimeBot {
         );
 
 
-        let api_tx = self.api_tx.clone();
-        tokio::spawn(async move {
-            api_tx.send((send_api, None)).await.unwrap();
-        });
+        send_not_return(&self.api_tx, send_api);
     }
 
     /// 设置群名片（群备注）
@@ -526,10 +537,7 @@ impl RuntimeBot {
         );
 
 
-        let api_tx = self.api_tx.clone();
-        tokio::spawn(async move {
-            api_tx.send((send_api, None)).await.unwrap();
-        });
+        send_not_return(&self.api_tx, send_api);
     }
 
     /// 设置群名
@@ -550,10 +558,7 @@ impl RuntimeBot {
         );
 
 
-        let api_tx = self.api_tx.clone();
-        tokio::spawn(async move {
-            api_tx.send((send_api, None)).await.unwrap();
-        });
+        send_not_return(&self.api_tx, send_api);
     }
 
     /// 退出群组
@@ -574,10 +579,7 @@ impl RuntimeBot {
         );
 
 
-        let api_tx = self.api_tx.clone();
-        tokio::spawn(async move {
-            api_tx.send((send_api, None)).await.unwrap();
-        });
+        send_not_return(&self.api_tx, send_api);
     }
 
     /// 设置群组专属头衔
@@ -601,10 +603,7 @@ impl RuntimeBot {
         );
 
 
-        let api_tx = self.api_tx.clone();
-        tokio::spawn(async move {
-            api_tx.send((send_api, None)).await.unwrap();
-        });
+        send_not_return(&self.api_tx, send_api);
     }
     /// 处理加好友请求
     ///
@@ -627,10 +626,7 @@ impl RuntimeBot {
         );
 
 
-        let api_tx = self.api_tx.clone();
-        tokio::spawn(async move {
-            api_tx.send((send_api, None)).await.unwrap();
-        });
+        send_not_return(&self.api_tx, send_api);
     }
     /// 处理加群请求／邀请
     ///
@@ -666,10 +662,7 @@ impl RuntimeBot {
         );
 
 
-        let api_tx = self.api_tx.clone();
-        tokio::spawn(async move {
-            api_tx.send((send_api, None)).await.unwrap();
-        });
+        send_not_return(&self.api_tx, send_api);
     }
 
     /// 清理缓存
@@ -677,12 +670,7 @@ impl RuntimeBot {
     /// 用于清理积攒了太多的**OneBot服务端**缓存文件。**并非是对于本框架清除**。
     pub fn clean_cache(&self) {
         let send_api = SendApi::new("clean_cache", json!({}), "None");
-
-
-        let api_tx = self.api_tx.clone();
-        tokio::spawn(async move {
-            api_tx.send((send_api, None)).await.unwrap();
-        });
+        send_not_return(&self.api_tx, send_api);
     }
 }
 
@@ -692,7 +680,10 @@ impl RuntimeBot {
     /// # Arguments
     ///
     /// `message_id`: 消息ID
-    pub async fn get_msg(&self, message_id: i32) -> Result<ApiReturn, ApiReturn> {
+    pub fn get_msg(
+        &self,
+        message_id: i32,
+    ) -> impl std::future::Future<Output = Result<ApiReturn, ApiReturn>> {
         let send_api = SendApi::new(
             "get_msg",
             json!({
@@ -701,13 +692,16 @@ impl RuntimeBot {
             &rand_echo(),
         );
 
-        self.send_and_return(send_api).await
+        send_and_return(self, send_api)
     }
     /// 获取合并转发消息
     /// # Arguments
     ///
     /// `id`: 合并转发 ID
-    pub async fn get_forward_msg(&self, id: &str) -> Result<ApiReturn, ApiReturn> {
+    pub fn get_forward_msg(
+        &self,
+        id: &str,
+    ) -> impl std::future::Future<Output = Result<ApiReturn, ApiReturn>> {
         let send_api = SendApi::new(
             "get_forward_msg",
             json!({
@@ -716,13 +710,15 @@ impl RuntimeBot {
             &rand_echo(),
         );
 
-        self.send_and_return(send_api).await
+        send_and_return(self, send_api)
     }
     /// 获取获取登录号信息
-    pub async fn get_login_info(&self) -> Result<ApiReturn, ApiReturn> {
+    pub fn get_login_info(
+        &self,
+    ) -> impl std::future::Future<Output = Result<ApiReturn, ApiReturn>> {
         let send_api = SendApi::new("get_login_info", json!({}), &rand_echo());
 
-        self.send_and_return(send_api).await
+        send_and_return(self, send_api)
     }
     /// 获取获取陌生人信息
     /// # Arguments
@@ -730,11 +726,11 @@ impl RuntimeBot {
     /// `user_id`
     ///
     /// `no_cache`: 是否不使用缓存（使用缓存可能更新不及时，但响应更快）
-    pub async fn get_stranger_info(
+    pub fn get_stranger_info(
         &self,
         user_id: i64,
         no_cache: bool,
-    ) -> Result<ApiReturn, ApiReturn> {
+    ) -> impl std::future::Future<Output = Result<ApiReturn, ApiReturn>> {
         let send_api = SendApi::new(
             "get_stranger_info",
             json!({
@@ -744,13 +740,15 @@ impl RuntimeBot {
             &rand_echo(),
         );
 
-        self.send_and_return(send_api).await
+        send_and_return(self, send_api)
     }
     /// 获取好友列表
-    pub async fn get_friend_list(&self) -> Result<ApiReturn, ApiReturn> {
+    pub fn get_friend_list(
+        &self,
+    ) -> impl std::future::Future<Output = Result<ApiReturn, ApiReturn>> {
         let send_api = SendApi::new("get_friend_list", json!({}), &rand_echo());
 
-        self.send_and_return(send_api).await
+        send_and_return(self, send_api)
     }
     /// 获取群信息
     /// # Arguments
@@ -758,11 +756,11 @@ impl RuntimeBot {
     /// `group_id`
     ///
     /// `no_cache`: 是否不使用缓存（使用缓存可能更新不及时，但响应更快）
-    pub async fn get_group_info(
+    pub fn get_group_info(
         &self,
         group_id: i64,
         no_cache: bool,
-    ) -> Result<ApiReturn, ApiReturn> {
+    ) -> impl std::future::Future<Output = Result<ApiReturn, ApiReturn>> {
         let send_api = SendApi::new(
             "get_group_info",
             json!({
@@ -772,13 +770,15 @@ impl RuntimeBot {
             &rand_echo(),
         );
 
-        self.send_and_return(send_api).await
+        send_and_return(self, send_api)
     }
     /// 获取群列表
-    pub async fn get_group_list(&self) -> Result<ApiReturn, ApiReturn> {
+    pub fn get_group_list(
+        &self,
+    ) -> impl std::future::Future<Output = Result<ApiReturn, ApiReturn>> {
         let send_api = SendApi::new("get_group_list", json!({}), &rand_echo());
 
-        self.send_and_return(send_api).await
+        send_and_return(self, send_api)
     }
     ///获取群成员信息
     /// # Arguments
@@ -788,12 +788,12 @@ impl RuntimeBot {
     /// `user_id`
     ///
     /// `no_cache`: 是否不使用缓存（使用缓存可能更新不及时，但响应更快）
-    pub async fn get_group_member_info(
+    pub fn get_group_member_info(
         &self,
         group_id: i64,
         user_id: i64,
         no_cache: bool,
-    ) -> Result<ApiReturn, ApiReturn> {
+    ) -> impl std::future::Future<Output = Result<ApiReturn, ApiReturn>> {
         let send_api = SendApi::new(
             "get_group_member_info",
             json!({
@@ -804,14 +804,17 @@ impl RuntimeBot {
             &rand_echo(),
         );
 
-        self.send_and_return(send_api).await
+        send_and_return(self, send_api)
     }
     /// 获取群成员列表
     ///
     /// # Arguments
     ///
     /// `group_id`
-    pub async fn get_group_member_list(&self, group_id: i64) -> Result<ApiReturn, ApiReturn> {
+    pub fn get_group_member_list(
+        &self,
+        group_id: i64,
+    ) -> impl std::future::Future<Output = Result<ApiReturn, ApiReturn>> {
         let send_api = SendApi::new(
             "get_group_member_list",
             json!({
@@ -820,7 +823,7 @@ impl RuntimeBot {
             &rand_echo(),
         );
 
-        self.send_and_return(send_api).await
+        send_and_return(self, send_api)
     }
 
     /// 获取群荣誉信息
@@ -829,11 +832,11 @@ impl RuntimeBot {
     /// `group_id`
     ///
     /// `honor_type`: 要获取的群荣誉类型，可传入 talkative performer legend strong_newbie emotion 以分别获取单个类型的群荣誉数据，或传入 all 获取所有数据。**本框架已包装好了HonorType枚举**
-    pub async fn get_group_honor_info(
+    pub fn get_group_honor_info(
         &self,
         group_id: i64,
         honor_type: HonorType,
-    ) -> Result<ApiReturn, ApiReturn> {
+    ) -> impl std::future::Future<Output = Result<ApiReturn, ApiReturn>> {
         let honor_type = match honor_type {
             HonorType::All => "all",
             HonorType::Talkative => "talkative",
@@ -852,7 +855,7 @@ impl RuntimeBot {
             &rand_echo(),
         );
 
-        self.send_and_return(send_api).await
+        send_and_return(self, send_api)
     }
 
     /// 获取相关接口凭证, 即 Cookies 和 CSRF Token 的合并。
@@ -860,7 +863,10 @@ impl RuntimeBot {
     /// # Arguments
     ///
     /// `domain`: 需要获取 cookies 的域名
-    pub async fn get_credentials(&self, domain: &str) -> Result<ApiReturn, ApiReturn> {
+    pub fn get_credentials(
+        &self,
+        domain: &str,
+    ) -> impl std::future::Future<Output = Result<ApiReturn, ApiReturn>> {
         let send_api = SendApi::new(
             "get_credentials",
             json!({
@@ -869,26 +875,31 @@ impl RuntimeBot {
             &rand_echo(),
         );
 
-        self.send_and_return(send_api).await
+        send_and_return(self, send_api)
     }
 
     /// 获取运行状态
-    pub async fn get_status(&self) -> Result<ApiReturn, ApiReturn> {
+    pub fn get_status(&self) -> impl std::future::Future<Output = Result<ApiReturn, ApiReturn>> {
         let send_api = SendApi::new("get_status", json!({}), &rand_echo());
 
-        self.send_and_return(send_api).await
+        send_and_return(self, send_api)
     }
     /// 获取版本信息
-    pub async fn get_version_info(&self) -> Result<ApiReturn, ApiReturn> {
+    pub fn get_version_info(
+        &self,
+    ) -> impl std::future::Future<Output = Result<ApiReturn, ApiReturn>> {
         let send_api = SendApi::new("get_version_info", json!({}), &rand_echo());
-        self.send_and_return(send_api).await
+        send_and_return(self, send_api)
     }
     /// 获取 Cookies
     ///
     /// # Arguments
     ///
     /// `domain`: 需要获取 cookies 的域名
-    pub async fn get_cookies(&self, domain: &str) -> Result<ApiReturn, ApiReturn> {
+    pub fn get_cookies(
+        &self,
+        domain: &str,
+    ) -> impl std::future::Future<Output = Result<ApiReturn, ApiReturn>> {
         let send_api = SendApi::new(
             "get_cookies",
             json!({
@@ -896,13 +907,15 @@ impl RuntimeBot {
             }),
             &rand_echo(),
         );
-        self.send_and_return(send_api).await
+        send_and_return(self, send_api)
     }
     /// 获取 CSRF Token
-    pub async fn get_csrf_token(&self) -> Result<ApiReturn, ApiReturn> {
+    pub fn get_csrf_token(
+        &self,
+    ) -> impl std::future::Future<Output = Result<ApiReturn, ApiReturn>> {
         let send_api = SendApi::new("get_csrf_token", json!({}), &rand_echo());
 
-        self.send_and_return(send_api).await
+        send_and_return(self, send_api)
     }
     /// 获取语音
     ///
@@ -911,7 +924,11 @@ impl RuntimeBot {
     /// `file`: 收到的语音文件名（消息段的 file 参数），如 `0B38145AA44505000B38145AA4450500.silk`
     ///
     /// `out_format`: 要转换到的格式，目前支持 `mp3`、`amr`、`wma`、`m4a`、`spx`、`ogg`、`wav`、`flac`
-    pub async fn get_record(&self, file: &str, out_format: &str) -> Result<ApiReturn, ApiReturn> {
+    pub fn get_record(
+        &self,
+        file: &str,
+        out_format: &str,
+    ) -> impl std::future::Future<Output = Result<ApiReturn, ApiReturn>> {
         let send_api = SendApi::new(
             "get_record",
             json!({
@@ -920,14 +937,17 @@ impl RuntimeBot {
             }),
             &rand_echo(),
         );
-        self.send_and_return(send_api).await
+        send_and_return(self, send_api)
     }
     /// 获取图片
     ///
     /// # Arguments
     ///
     /// `file`: 收到的图片文件名（消息段的 file 参数），如 `6B4DE3DFD1BD271E3297859D41C530F5.jpg`
-    pub async fn get_image(&self, file: &str) -> Result<ApiReturn, ApiReturn> {
+    pub fn get_image(
+        &self,
+        file: &str,
+    ) -> impl std::future::Future<Output = Result<ApiReturn, ApiReturn>> {
         let send_api = SendApi::new(
             "get_image",
             json!({
@@ -935,7 +955,7 @@ impl RuntimeBot {
             }),
             &rand_echo(),
         );
-        self.send_and_return(send_api).await
+        send_and_return(self, send_api)
     }
 
     /// 点赞，有些服务端会返回点赞失败，不关注返回值的话请使用 send_like()
@@ -944,11 +964,11 @@ impl RuntimeBot {
     /// `user_id`
     ///
     /// `times`: 次数
-    pub async fn send_like_return(
+    pub fn send_like_return(
         &self,
         user_id: i64,
         times: usize,
-    ) -> Result<ApiReturn, ApiReturn> {
+    ) -> impl std::future::Future<Output = Result<ApiReturn, ApiReturn>> {
         let send_api = SendApi::new(
             "send_like",
             json!({
@@ -958,7 +978,7 @@ impl RuntimeBot {
             &rand_echo(),
         );
 
-        self.send_and_return(send_api).await
+        send_and_return(self, send_api)
     }
 }
 
@@ -974,11 +994,7 @@ impl RuntimeBot {
     /// `params`: 参数
     pub fn send_api(&self, action: &str, params: Value) {
         let send_api = SendApi::new(action, params, "None");
-
-        let api_tx = self.api_tx.clone();
-        tokio::spawn(async move {
-            api_tx.send((send_api, None)).await.unwrap();
-        });
+        send_not_return(&self.api_tx, send_api)
     }
     /// 发送拓展 Api, 此方法关注返回值。
     ///
@@ -989,32 +1005,75 @@ impl RuntimeBot {
     /// `action`: 拓展 Api 的方法名
     ///
     /// `params`: 参数
-    pub async fn send_api_return(
+    pub fn send_api_return(
         &self,
         action: &str,
         params: Value,
-    ) -> Result<ApiReturn, ApiReturn> {
+    ) -> impl std::future::Future<Output = Result<ApiReturn, ApiReturn>> {
         let send_api = SendApi::new(action, params, &rand_echo());
-
-        self.send_and_return(send_api).await
+        send_and_return(self, send_api)
     }
 }
 
+type ApiOneshotSender = oneshot::Sender<Result<ApiReturn, ApiReturn>>;
+type ApiOneshotReceiver = oneshot::Receiver<Result<ApiReturn, ApiReturn>>;
 
-impl RuntimeBot {
-    pub(crate) async fn send_and_return(&self, send_api: SendApi) -> Result<ApiReturn, ApiReturn> {
-        #[allow(clippy::type_complexity)]
-        let (api_tx, api_rx): (
-            oneshot::Sender<Result<ApiReturn, ApiReturn>>,
-            oneshot::Receiver<Result<ApiReturn, ApiReturn>>,
-        ) = oneshot::channel();
-        self.api_tx.send((send_api, Some(api_tx))).await.unwrap();
-        match api_rx.await {
-            Ok(v) => v,
-            Err(e) => {
-                error!("{e}");
-                panic!()
+pub fn send_and_return(
+    bot: &RuntimeBot,
+    send_api: SendApi,
+) -> impl std::future::Future<Output = Result<ApiReturn, ApiReturn>> {
+    let api_rx = send(&bot.api_tx, send_api);
+    _and_return(api_rx)
+}
+
+pub fn send(api_tx: &mpsc::Sender<ApiAndOneshot>, send_api: SendApi) -> ApiOneshotReceiver {
+    let (api_tx_, api_rx): (ApiOneshotSender, ApiOneshotReceiver) = oneshot::channel();
+
+    if let Err(e) = api_tx.try_send((send_api, Some(api_tx_))) {
+        match e {
+            mpsc::error::TrySendError::Full(v) => {
+                log::trace!("RuntimeBot Api Queue Full, spawn new task to send");
+
+                let api_tx = api_tx.clone();
+
+                tokio::task::spawn(async move {
+                    api_tx.send(v).await.unwrap();
+                });
             }
+            mpsc::error::TrySendError::Closed(_) => {
+                log::error!("RuntimeBot Api Queue Closed");
+            }
+        }
+    };
+
+    api_rx
+}
+
+pub fn send_not_return(api_tx: &mpsc::Sender<ApiAndOneshot>, send_api: SendApi) {
+    if let Err(e) = api_tx.try_send((send_api, None)) {
+        match e {
+            mpsc::error::TrySendError::Full(v) => {
+                log::trace!("RuntimeBot Api Queue Full, spawn new task to send");
+
+                let api_tx = api_tx.clone();
+
+                tokio::task::spawn(async move {
+                    api_tx.send(v).await.unwrap();
+                });
+            }
+            mpsc::error::TrySendError::Closed(_) => {
+                log::error!("RuntimeBot Api Queue Closed");
+            }
+        }
+    };
+}
+
+pub async fn _and_return(api_rx: ApiOneshotReceiver) -> Result<ApiReturn, ApiReturn> {
+    match api_rx.await {
+        Ok(v) => v,
+        Err(e) => {
+            error!("{e}");
+            panic!()
         }
     }
 }

@@ -89,7 +89,7 @@ pub struct ApiReturn {
     pub echo: String,
 }
 
-pub type ApiOneshot = (
+pub(crate) type ApiAndOneshot = (
     SendApi,
     Option<oneshot::Sender<Result<ApiReturn, ApiReturn>>>,
 );
@@ -111,7 +111,7 @@ impl std::fmt::Display for SendApi {
 }
 
 impl SendApi {
-    pub(crate) fn new(action: &str, params: Value, echo: &str) -> Self {
+    pub fn new(action: &str, params: Value, echo: &str) -> Self {
         SendApi {
             action: action.to_string(),
             params,

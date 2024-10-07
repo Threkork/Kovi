@@ -81,13 +81,11 @@ Here's a minimal example:
 
 ```rust
 // Import the plugin builder structure
-use kovi::PluginBuilder;
+use kovi::PluginBuilder as plugin;
 
 #[kovi::plugin] // Build the plugin
-pub fn main(mut plugin: PluginBuilder) {
-    // The main function must accept PluginBuilder, as it is the foundation of the plugin.
-
-    plugin.on_msg(move |event| {
+async fn main() {
+    plugin::on_msg(|event| async move {
         // on_msg() listens for messages, and event contains all the information of the current message.
         if event.borrow_text() == Some("Hi Bot") {
             event.reply("Hi!") // Quick reply
@@ -126,12 +124,12 @@ fn main() {
 #### Bot Actively Sending Messages
 
 ```rust
-use kovi::PluginBuilder;
+use kovi::PluginBuilder as plugin;
 
 #[kovi::plugin]
-pub fn main(mut plugin: PluginBuilder) {
-    // Build a RuntimeBot
-    let bot = plugin.build_runtime_bot();
+async fn main() {
+    // get a RuntimeBot
+    let bot = plugin::get_runtime_bot();
     let user_id = bot.main_admin;
 
     bot.send_private_msg(user_id, "bot online")
@@ -140,7 +138,7 @@ pub fn main(mut plugin: PluginBuilder) {
 
 The `main()` function runs only once when KoviBot starts.
 
-The closure passed to `plugin.on_msg()` runs every time a message is received.
+The closure passed to `plugin::on_msg()` runs every time a message is received.
 
 Kovi has encapsulated all available OneBot standard APIs. To extend the API, you can use `RuntimeBot`'s `send_api()` to send APIs yourself.
 

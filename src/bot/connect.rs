@@ -1,4 +1,4 @@
-use super::{exit_and_eprintln, handler::InternalEvent, ApiOneshot, ApiReturn, Bot};
+use super::{exit_and_eprintln, handler::InternalEvent, ApiAndOneshot, ApiReturn, Bot};
 use futures_util::{SinkExt, StreamExt};
 use log::{debug, warn};
 use reqwest::header::HeaderValue;
@@ -66,7 +66,7 @@ impl Bot {
         host: IpAddr,
         port: u16,
         access_token: String,
-        mut api_rx: mpsc::Receiver<ApiOneshot>,
+        mut api_rx: mpsc::Receiver<ApiAndOneshot>,
         event_tx: mpsc::Sender<InternalEvent>,
     ) {
         //增加Authorization头
@@ -142,12 +142,17 @@ impl Bot {
                                 let mut api_tx_map = api_tx_map.lock().await;
 
                                 let api_tx = api_tx_map.remove(&return_value.echo).unwrap();
-                                if return_value.status.to_lowercase() == "ok" {
-                                    api_tx.send(Ok(return_value)).unwrap();
+                                let r = if return_value.status.to_lowercase() == "ok" {
+                                    api_tx.send(Ok(return_value))
                                 } else {
-                                    api_tx.send(Err(return_value)).unwrap();
-                                }
+                                    api_tx.send(Err(return_value))
+                                };
+
+                                if r.is_err() {
+                                    log::error!("Return Api failed, the receiver has been closed")
+                                };
                             }
+
                             Err(e) => exit_and_eprintln(e, event_tx).await,
                         }
                     }

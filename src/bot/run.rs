@@ -1,6 +1,6 @@
 use super::{
     handler::{InternalEvent, KoviEvent},
-    ApiOneshot, Bot,
+    ApiAndOneshot, Bot,
 };
 use crate::PluginBuilder;
 use log::error;
@@ -46,7 +46,7 @@ impl Bot {
             ) = mpsc::channel(32);
 
             // 接收插件的api
-            let (api_tx, api_rx): (mpsc::Sender<ApiOneshot>, mpsc::Receiver<ApiOneshot>) =
+            let (api_tx, api_rx): (mpsc::Sender<ApiAndOneshot>, mpsc::Receiver<ApiAndOneshot>) =
                 mpsc::channel(32);
 
             // let (cron_tx, mut cron_rx): (mpsc::Sender<MpscCronTask>, mpsc::Receiver<MpscCronTask>) =
@@ -116,7 +116,7 @@ impl Bot {
     }
 
     // 运行所有main()
-    async fn plugin_main(bot: Arc<RwLock<Self>>, api_tx: mpsc::Sender<ApiOneshot>) {
+    async fn plugin_main(bot: Arc<RwLock<Self>>, api_tx: mpsc::Sender<ApiAndOneshot>) {
         let main_job_map = bot.read().unwrap().plugins.clone();
 
         for (name, plugins) in main_job_map {

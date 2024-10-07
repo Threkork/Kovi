@@ -23,7 +23,7 @@ impl Bot {
     pub(crate) async fn handler_event(
         bot: Arc<RwLock<Self>>,
         event: InternalEvent,
-        api_tx: mpsc::Sender<ApiOneshot>,
+        api_tx: mpsc::Sender<ApiAndOneshot>,
     ) {
         match event {
             InternalEvent::KoviEvent(event) => Self::handle_kovi_event(bot, event).await,
@@ -55,7 +55,7 @@ impl Bot {
         }
     }
 
-    async fn handler_msg(bot: Arc<RwLock<Self>>, msg: String, api_tx: mpsc::Sender<ApiOneshot>) {
+    async fn handler_msg(bot: Arc<RwLock<Self>>, msg: String, api_tx: mpsc::Sender<ApiAndOneshot>) {
         let msg_json: Value = serde_json::from_str(&msg).unwrap();
 
         debug!("{msg_json}");
@@ -216,7 +216,7 @@ async fn handler_kovi_drop(listen: ListenFn) {
 }
 
 
-pub(crate) async fn handler_lifecycle(api_tx_: mpsc::Sender<ApiOneshot>) {
+pub(crate) async fn handler_lifecycle(api_tx_: mpsc::Sender<ApiAndOneshot>) {
     let api_msg = SendApi::new("get_login_info", json!({}), "kovi");
 
     #[allow(clippy::type_complexity)]
