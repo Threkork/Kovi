@@ -89,7 +89,7 @@ pub struct ApiReturn {
     pub echo: String,
 }
 
-pub type ApiOneshot = (
+pub(crate) type ApiAndOneshot = (
     SendApi,
     Option<oneshot::Sender<Result<ApiReturn, ApiReturn>>>,
 );

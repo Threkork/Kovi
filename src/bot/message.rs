@@ -415,7 +415,7 @@ pub fn arr_to_cq(message: Message) -> CQMessage {
     let mut result = String::new();
 
     for item in message.iter() {
-        result.push_str(&parse_cq_code(&item));
+        result.push_str(&parse_cq_code(item));
     }
 
     result.into()

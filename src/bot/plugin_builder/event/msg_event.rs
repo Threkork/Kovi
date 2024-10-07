@@ -1,12 +1,16 @@
 use super::{Anonymous, Sender};
+use crate::bot::runtimebot::onebot_api::send_not_return;
 use crate::{
-    bot::{plugin_builder::event::Sex, ApiOneshot, SendApi},
+    bot::{plugin_builder::event::Sex, ApiAndOneshot, SendApi},
     Message,
 };
-use log::{debug, error, info};
+use log::{debug, info};
 use serde::Serialize;
 use serde_json::{self, json, Value};
 use tokio::sync::mpsc;
+
+#[cfg(not(feature = "cqstring"))]
+use log::error;
 
 #[cfg(feature = "cqstring")]
 use crate::bot::message::{cq_to_arr, CQMessage};
@@ -47,12 +51,12 @@ pub struct AllMsgEvent {
     /// 原始的onebot消息，已处理成json格式
     pub original_json: Value,
 
-    api_tx: mpsc::Sender<ApiOneshot>,
+    api_tx: mpsc::Sender<ApiAndOneshot>,
 }
 
 impl AllMsgEvent {
     pub(crate) fn new(
-        api_tx: mpsc::Sender<ApiOneshot>,
+        api_tx: mpsc::Sender<ApiAndOneshot>,
         msg: &str,
     ) -> Result<AllMsgEvent, Box<dyn std::error::Error>> {
         let temp: Value = serde_json::from_str(msg)?;
@@ -212,7 +216,9 @@ impl AllMsgEvent {
         };
         let human_msg = msg.to_human_string();
         info!("[reply] [to {message_type}{group_id}{nickname} {id}]: {human_msg}");
+
         let api_tx = self.api_tx.clone();
+
         tokio::spawn(async move {
             api_tx.send((send_msg, None)).await.unwrap();
         });
@@ -237,10 +243,7 @@ impl AllMsgEvent {
         };
         let human_msg = Message::from(msg).to_human_string();
         info!("[reply] [to {message_type}{group_id}{nickname} {id}]: {human_msg}");
-        let api_tx = self.api_tx.clone();
-        tokio::spawn(async move {
-            api_tx.send((send_msg, None)).await.unwrap();
-        });
+        send_not_return(&self.api_tx, send_msg);
     }
 
     #[cfg(not(feature = "cqstring"))]
@@ -263,10 +266,8 @@ impl AllMsgEvent {
         };
         let human_msg = msg.to_human_string();
         info!("[reply] [to {message_type}{group_id}{nickname} {id}]: {human_msg}");
-        let api_tx = self.api_tx.clone();
-        tokio::spawn(async move {
-            api_tx.send((send_msg, None)).await.unwrap();
-        });
+
+        send_not_return(&self.api_tx, send_msg);
     }
 
     #[cfg(feature = "cqstring")]
@@ -289,10 +290,7 @@ impl AllMsgEvent {
         };
         let human_msg = Message::from(msg).to_human_string();
         info!("[reply] [to {message_type}{group_id}{nickname} {id}]: {human_msg}");
-        let api_tx = self.api_tx.clone();
-        tokio::spawn(async move {
-            api_tx.send((send_msg, None)).await.unwrap();
-        });
+        send_not_return(&self.api_tx, send_msg);
     }
 
 
@@ -313,10 +311,7 @@ impl AllMsgEvent {
         };
         let msg = String::from(msg);
         info!("[reply] [to {message_type}{group_id} {nickname} {id}]: {msg}");
-        let api_tx = self.api_tx.clone();
-        tokio::spawn(async move {
-            api_tx.send((send_msg, None)).await.unwrap();
-        });
+        send_not_return(&self.api_tx, send_msg);
     }
 
 
