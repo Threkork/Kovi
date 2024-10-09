@@ -1,10 +1,11 @@
-use super::{ApiAndOneshot, Bot};
+use super::{ApiAndOneshot, ApiReturn, Bot, SendApi};
+use log::error;
 use rand::Rng;
 use std::{
     net::IpAddr,
     sync::{Arc, RwLock},
 };
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, oneshot};
 
 pub mod kovi_api;
 
@@ -42,4 +43,71 @@ pub fn rand_echo() -> String {
         s.push(rng.gen_range('a'..='z'));
     }
     s
+}
+
+
+type ApiOneshotSender = oneshot::Sender<Result<ApiReturn, ApiReturn>>;
+type ApiOneshotReceiver = oneshot::Receiver<Result<ApiReturn, ApiReturn>>;
+
+pub fn send_api_request_with_response(
+    api_tx: &mpsc::Sender<ApiAndOneshot>,
+    send_api: SendApi,
+) -> impl std::future::Future<Output = Result<ApiReturn, ApiReturn>> {
+    let api_rx = send_api_request(api_tx, send_api);
+    send_api_await_response(api_rx)
+}
+
+pub fn send_api_request(
+    api_tx: &mpsc::Sender<ApiAndOneshot>,
+    send_api: SendApi,
+) -> ApiOneshotReceiver {
+    let (api_tx_, api_rx): (ApiOneshotSender, ApiOneshotReceiver) = oneshot::channel();
+
+    if let Err(e) = api_tx.try_send((send_api, Some(api_tx_))) {
+        match e {
+            mpsc::error::TrySendError::Full(v) => {
+                log::trace!("RuntimeBot Api Queue Full, spawn new task to send");
+
+                let api_tx = api_tx.clone();
+
+                tokio::task::spawn(async move {
+                    api_tx.send(v).await.unwrap();
+                });
+            }
+            mpsc::error::TrySendError::Closed(_) => {
+                log::error!("RuntimeBot Api Queue Closed");
+            }
+        }
+    };
+
+    api_rx
+}
+
+pub fn send_api_request_with_forget(api_tx: &mpsc::Sender<ApiAndOneshot>, send_api: SendApi) {
+    if let Err(e) = api_tx.try_send((send_api, None)) {
+        match e {
+            mpsc::error::TrySendError::Full(v) => {
+                log::trace!("RuntimeBot Api Queue Full, spawn new task to send");
+
+                let api_tx = api_tx.clone();
+
+                tokio::task::spawn(async move {
+                    api_tx.send(v).await.unwrap();
+                });
+            }
+            mpsc::error::TrySendError::Closed(_) => {
+                log::error!("RuntimeBot Api Queue Closed");
+            }
+        }
+    };
+}
+
+pub async fn send_api_await_response(api_rx: ApiOneshotReceiver) -> Result<ApiReturn, ApiReturn> {
+    match api_rx.await {
+        Ok(v) => v,
+        Err(e) => {
+            error!("{e}");
+            panic!()
+        }
+    }
 }

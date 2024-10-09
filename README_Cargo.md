@@ -16,10 +16,6 @@ More features will be added in future updates.
 
 The original intent behind this project is to enhance group activity, facilitate group management, and is intended for personal entertainment, learning, and communication purposes only. **No one is allowed to use this project for any illegal activities.**
 
-## Why is it called Kovi?
-
-The bot plugin development method is derived from [Kivi](#). The [Kivi](#) repository is no longer available, but you can check out its author [Viki](https://github.com/vikiboss). If you've developed plugins for the [Kivi](#) framework before, getting started with this framework will be easy.
-
 ## Getting Started
 
 The project is written in [Rust](#), and plugins also need to be written in [Rust](#). Please ensure that Rust is installed locally.

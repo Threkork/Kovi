@@ -1,5 +1,5 @@
 use super::{Anonymous, Sender};
-use crate::bot::runtimebot::onebot_api::send_not_return;
+use crate::bot::runtimebot::send_api_request_with_forget;
 use crate::{
     bot::{plugin_builder::event::Sex, ApiAndOneshot, SendApi},
     Message,
@@ -243,7 +243,7 @@ impl AllMsgEvent {
         };
         let human_msg = Message::from(msg).to_human_string();
         info!("[reply] [to {message_type}{group_id}{nickname} {id}]: {human_msg}");
-        send_not_return(&self.api_tx, send_msg);
+        send_api_request_with_forget(&self.api_tx, send_msg);
     }
 
     #[cfg(not(feature = "cqstring"))]
@@ -267,7 +267,7 @@ impl AllMsgEvent {
         let human_msg = msg.to_human_string();
         info!("[reply] [to {message_type}{group_id}{nickname} {id}]: {human_msg}");
 
-        send_not_return(&self.api_tx, send_msg);
+        send_api_request_with_forget(&self.api_tx, send_msg);
     }
 
     #[cfg(feature = "cqstring")]
@@ -290,7 +290,7 @@ impl AllMsgEvent {
         };
         let human_msg = Message::from(msg).to_human_string();
         info!("[reply] [to {message_type}{group_id}{nickname} {id}]: {human_msg}");
-        send_not_return(&self.api_tx, send_msg);
+        send_api_request_with_forget(&self.api_tx, send_msg);
     }
 
 
@@ -311,7 +311,7 @@ impl AllMsgEvent {
         };
         let msg = String::from(msg);
         info!("[reply] [to {message_type}{group_id} {nickname} {id}]: {msg}");
-        send_not_return(&self.api_tx, send_msg);
+        send_api_request_with_forget(&self.api_tx, send_msg);
     }
 
 
