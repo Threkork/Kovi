@@ -293,6 +293,29 @@ impl AllMsgEvent {
         send_api_request_with_forget(&self.api_tx, send_msg);
     }
 
+
+    #[cfg(feature = "cqstring")]
+    /// 快速回复消息且**不解析直接发送纯文本**
+    pub fn reply_text<T>(&self, msg: T)
+    where
+        String: From<T>,
+        T: Serialize,
+    {
+        let send_msg = self.reply_builder(&msg, true);
+        let mut nickname = self.get_sender_nickname();
+        nickname.insert(0, ' ');
+        let id = &self.sender.user_id;
+        let message_type = &self.message_type;
+        let group_id = match &self.group_id {
+            Some(v) => format!(" {v}"),
+            None => "".to_string(),
+        };
+        let msg = String::from(msg);
+        info!("[reply] [to {message_type}{group_id} {nickname} {id}]: {msg}");
+        send_api_request_with_forget(&self.api_tx, send_msg);
+    }
+
+
     /// 便捷获取文本，如果没有文本则会返回空字符串，如果只需要借用，请使用 `borrow_text()`
     pub fn get_text(&self) -> String {
         match self.text.clone() {
