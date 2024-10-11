@@ -295,7 +295,7 @@ impl AllMsgEvent {
 
 
     #[cfg(feature = "cqstring")]
-    /// 快速回复消息且**不解析直接发送纯文本**
+    /// 快速回复消息，并且**kovi不进行解析，直接发送此字符串**
     pub fn reply_text<T>(&self, msg: T)
     where
         String: From<T>,

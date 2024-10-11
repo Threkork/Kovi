@@ -71,6 +71,52 @@ impl Message {
     }
 }
 
+impl Message {
+    /// 在消息加上文字
+    pub fn push_text<T>(&mut self, text: T)
+    where
+        String: From<T>,
+        T: Serialize + Display,
+    {
+        self.push(Segment {
+            type_: "text".to_string(),
+            data: json!({ "text": text }),
+        });
+    }
+
+    /// 消息加上at
+    pub fn push_at(&mut self, id: &str) {
+        self.0.push(Segment {
+            type_: "at".to_string(),
+            data: json!({ "qq": id }),
+        });
+    }
+
+    /// 消息加上引用
+    pub fn push_reply(&mut self, message_id: i32) {
+        self.0.insert(0, Segment {
+            type_: "reply".to_string(),
+            data: json!({ "id": message_id.to_string() }),
+        });
+    }
+
+    /// 消息加上表情, 具体 id 请看服务端文档, 本框架不提供
+    pub fn push_face(&mut self, id: i64) {
+        self.0.push(Segment {
+            type_: "face".to_string(),
+            data: json!({ "id": id.to_string() }),
+        });
+    }
+
+    /// 消息加上图片
+    pub fn push_image(&mut self, file: &str) {
+        self.0.push(Segment {
+            type_: "image".to_string(),
+            data: json!({ "file": file }),
+        });
+    }
+}
+
 #[cfg(feature = "cqstring")]
 impl CQMessage {
     /// 在消息加上文字
@@ -119,5 +165,38 @@ impl CQMessage {
             self.0.push_str(&super::parse_cq_code(&segment));
         }
         self
+    }
+}
+
+#[cfg(feature = "cqstring")]
+impl CQMessage {
+    /// 在消息加上文字
+    pub fn push_text<T>(&mut self, text: T)
+    where
+        String: From<T>,
+        T: Serialize + Display,
+    {
+        self.0.push_str(&format!("[CQ:text,text={}]", text));
+    }
+
+    /// 消息加上at
+    pub fn push_at(&mut self, id: &str) {
+        self.0.push_str(&format!("[CQ:at,qq={}]", id));
+    }
+
+    /// 消息加上引用
+    pub fn push_reply(&mut self, message_id: i32) {
+        self.0
+            .insert_str(0, &format!("[CQ:reply,id={}]", message_id));
+    }
+
+    /// 消息加上表情
+    pub fn push_face(&mut self, id: i64) {
+        self.0.push_str(&format!("[CQ:face,id={}]", id));
+    }
+
+    /// 消息加上图片
+    pub fn push_image(&mut self, file: &str) {
+        self.0.push_str(&format!("[CQ:image,file={}]", file));
     }
 }

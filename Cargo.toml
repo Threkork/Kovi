@@ -1,6 +1,6 @@
 [package]
 name = "kovi"
-version = "0.8.6"
+version = "0.8.7"
 edition = "2021"
 description = "A OneBot V11 bot plugin framework"
 license = "MPL-2.0"
@@ -38,6 +38,6 @@ rand = "0.8.5"
 
 
 [features]
-default = ["logger"]
+default = ["logger", "cqstring"]
 logger = ["env_logger"]
 cqstring = []
