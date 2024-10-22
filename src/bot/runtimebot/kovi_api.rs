@@ -1,5 +1,9 @@
 use super::RuntimeBot;
-use crate::Bot;
+use crate::{
+    error::BotError,
+    task::{PLUGIN_NAME, TASK_MANAGER},
+    Bot,
+};
 use std::{
     path::PathBuf,
     sync::{Arc, RwLock},
@@ -10,6 +14,15 @@ pub trait KoviApi {
     fn get_data_path(&self) -> PathBuf;
     /// 获取 KoviBot 用来操控 KoviBot 自身。危险⚠️
     fn get_kovi_bot(&self) -> Arc<RwLock<Bot>>;
+
+    /// 卸载传入的插件
+    fn disable_plugin<T: AsRef<str> + std::marker::Send>(
+        &self,
+        plugin_name: T,
+    ) -> Result<(), BotError>;
+
+    /// 启用传入的插件
+    fn enable_plugin<T: AsRef<str>>(&self, plugin_name: T) -> Result<(), BotError>;
 }
 
 impl KoviApi for RuntimeBot {
@@ -23,4 +36,71 @@ impl KoviApi for RuntimeBot {
     fn get_kovi_bot(&self) -> Arc<RwLock<Bot>> {
         self.bot.clone()
     }
+
+    fn disable_plugin<T: AsRef<str> + std::marker::Send>(
+        &self,
+        plugin_name: T,
+    ) -> Result<(), BotError> {
+        disable_plugin(self.bot.clone(), plugin_name)
+    }
+
+    fn enable_plugin<T: AsRef<str>>(&self, plugin_name: T) -> Result<(), BotError> {
+        enable_plugin(self.bot.clone(), plugin_name)
+    }
+}
+
+
+/// 卸载传入的插件
+///
+/// 并且因为要运行插件可能存在的 drop 闭包，所以需要异步。
+///
+/// # error
+///
+/// 如果寻找不到插件，会报错 BotError::PluginNotFound
+fn disable_plugin<T: AsRef<str>>(bot: Arc<RwLock<Bot>>, plugin_name: T) -> Result<(), BotError> {
+    let mut join_handles = Vec::new();
+    {
+        let mut bot = bot.write().unwrap();
+
+        let plugin_name = plugin_name.as_ref();
+
+        let bot_plugin = match bot.plugins.get_mut(plugin_name) {
+            Some(v) => v,
+            None => return Err(BotError::PluginNotFound(plugin_name.to_string())),
+        };
+
+
+        let plugin_name_ = Arc::new(plugin_name.to_string());
+        for listen in &bot_plugin.listen.drop {
+            let listen_clone = listen.clone();
+            let plugin_name_ = plugin_name_.clone();
+            let handle = tokio::spawn(async move {
+                PLUGIN_NAME.scope(plugin_name_, Bot::handler_drop(listen_clone));
+            });
+            join_handles.push(handle);
+        }
+
+        TASK_MANAGER.disable_plugin(plugin_name);
+
+        bot_plugin.enabled.send(false).unwrap();
+        bot_plugin.listen.clear();
+    }
+
+    Ok(())
+}
+
+fn enable_plugin<T: AsRef<str>>(bot: Arc<RwLock<Bot>>, plugin_name: T) -> Result<(), BotError> {
+    let bot = bot.read().unwrap();
+    let plugin_name = plugin_name.as_ref();
+
+    let bot_plugin = match bot.plugins.get(plugin_name) {
+        Some(v) => v,
+        None => return Err(BotError::PluginNotFound(plugin_name.to_string())),
+    };
+
+    bot_plugin.enabled.send(true).unwrap();
+
+    Bot::run_plugin_main(bot_plugin);
+
+    Ok(())
 }

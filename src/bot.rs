@@ -22,7 +22,6 @@ mod connect;
 mod handler;
 mod run;
 
-pub mod controller;
 pub mod message;
 pub mod plugin_builder;
 pub mod runtimebot;
