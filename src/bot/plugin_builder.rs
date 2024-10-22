@@ -1,3 +1,5 @@
+use crate::task::PLUGIN_NAME;
+
 use super::run::PLUGIN_BUILDER;
 use super::ApiAndOneshot;
 use super::{runtimebot::RuntimeBot, Bot};
@@ -25,7 +27,7 @@ pub type AllRequestFn = Arc<dyn Fn(Arc<AllRequestEvent>) -> PinFut + Send + Sync
 
 pub type NoArgsFn = Arc<dyn Fn() -> PinFut + Send + Sync>;
 
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub(crate) struct Listen {
     pub(crate) msg: Vec<Arc<ListenMsgFn>>,
     pub(crate) notice: Vec<AllNoticeFn>,
@@ -39,18 +41,6 @@ pub(crate) enum ListenMsgFn {
     PrivateMsg(AllMsgFn),
     GroupMsg(AllMsgFn),
     AdminMsg(AllMsgFn),
-}
-
-
-impl Default for Listen {
-    fn default() -> Self {
-        Listen {
-            msg: Vec::new(),
-            notice: Vec::new(),
-            request: Vec::new(),
-            drop: Vec::new(),
-        }
-    }
 }
 
 impl Listen {
@@ -76,18 +66,12 @@ impl PluginBuilder {
     pub(crate) fn new(
         name: String,
         bot: Arc<RwLock<Bot>>,
+        main_admin: i64,
+        admin: Vec<i64>,
+        host: IpAddr,
+        port: u16,
         api_tx: mpsc::Sender<ApiAndOneshot>,
     ) -> Self {
-        let (main_admin, admin, host, port) = {
-            let bot_lock = bot.read().unwrap();
-            (
-                bot_lock.information.main_admin,
-                bot_lock.information.admin.clone(),
-                bot_lock.information.server.host,
-                bot_lock.information.server.port,
-            )
-        };
-
         let runtime_bot = Arc::new(RuntimeBot {
             main_admin,
             admin,
@@ -348,23 +332,7 @@ impl PluginBuilder {
                 Ok(v) => v,
                 Err(e) => return Err(e),
             };
-            let name = p.runtime_bot.plugin_name.clone();
-            tokio::spawn(async move {
-                loop {
-                    let now = chrono::Local::now();
-                    let next = match cron.find_next_occurrence(&now, false) {
-                        Ok(v) => v,
-                        Err(e) => {
-                            error!("{name} cron task error: {}", e);
-                            continue;
-                        }
-                    };
-                    let time = next - now;
-                    let duration = std::time::Duration::from_millis(time.num_milliseconds() as u64);
-                    tokio::time::sleep(duration).await;
-                    handler().await;
-                }
-            });
+            Self::run_cron_task(p, cron, handler);
             Ok(())
         })
     }
@@ -379,24 +347,51 @@ impl PluginBuilder {
         Fut::Output: Send + 'static,
     {
         PLUGIN_BUILDER.with(|p| {
-            let name = p.runtime_bot.plugin_name.clone();
-            tokio::spawn(async move {
-                loop {
-                    let now = chrono::Local::now();
-                    let next = match cron.find_next_occurrence(&now, false) {
-                        Ok(v) => v,
-                        Err(e) => {
-                            error!("{name} cron task error: {}", e);
-                            continue;
-                        }
-                    };
-                    let time = next - now;
-                    let duration = std::time::Duration::from_millis(time.num_milliseconds() as u64);
-                    tokio::time::sleep(duration).await;
-                    handler().await;
-                }
-            });
+            Self::run_cron_task(p, cron, handler);
         })
+    }
+
+    fn run_cron_task<F, Fut>(p: &PluginBuilder, cron: Cron, handler: F)
+    where
+        F: Fn() -> Fut + Send + Sync + 'static,
+        Fut: Future + Send + 'static,
+        Fut::Output: Send + 'static,
+    {
+        let name = Arc::new(p.runtime_bot.plugin_name.clone());
+        let mut enabled = {
+            let bot = p.runtime_bot.bot.read().unwrap();
+            let plugin = bot.plugins.get(&*name).unwrap();
+            plugin.enabled.subscribe()
+        };
+        tokio::spawn(PLUGIN_NAME.scope(name.clone(), async move {
+            
+            tokio::select! {
+                _ = async {
+                        loop {
+                            let now = chrono::Local::now();
+                            let next = match cron.find_next_occurrence(&now, false) {
+                                Ok(v) => v,
+                                Err(e) => {
+                                    error!("{name} cron task error: {}", e);
+                                    break;
+                                }
+                            };
+                            let time = next - now;
+                            let duration = std::time::Duration::from_millis(time.num_milliseconds() as u64);
+                            tokio::time::sleep(duration).await;
+                            handler().await;
+                        }
+                } => {}
+                _ = async {
+                        loop {
+                            enabled.changed().await.unwrap();
+                            if !*enabled.borrow_and_update() {
+                                break;
+                            }
+                        }
+                } => {}
+            }
+        }));
     }
 }
 
@@ -436,98 +431,116 @@ macro_rules! async_move {
     };
 }
 
+#[cfg(test)]
+mod on_is_ture {
+    use crate::{
+        bot::{plugin_builder::ListenMsgFn, run::PLUGIN_BUILDER, ApiAndOneshot},
+        Bot, PluginBuilder,
+    };
+    use std::{
+        net::{IpAddr, Ipv4Addr},
+        sync::{Arc, RwLock},
+    };
+    use tokio::sync::mpsc;
 
-#[tokio::test]
-async fn on_is_ture() {
-    let conf = crate::bot::KoviConf::new(
-        123,
-        None,
-        crate::bot::Server::new(
-            IpAddr::V4(std::net::Ipv4Addr::new(127, 0, 0, 1)),
+    #[tokio::test]
+    async fn on_is_ture() {
+        let conf = crate::bot::KoviConf::new(
+            123,
+            None,
+            crate::bot::Server::new(
+                IpAddr::V4(std::net::Ipv4Addr::new(127, 0, 0, 1)),
+                8081,
+                "".to_string(),
+            ),
+            false,
+        );
+
+        let (api_tx, _): (mpsc::Sender<ApiAndOneshot>, mpsc::Receiver<ApiAndOneshot>) =
+            mpsc::channel(1);
+
+        async fn test_something() {
+            PluginBuilder::on_msg(|_| async {});
+            PluginBuilder::on_admin_msg(|_| async {});
+            PluginBuilder::on_group_msg(|_| async {});
+            PluginBuilder::on_private_msg(|_| async {});
+            PluginBuilder::on_all_notice(|_| async {});
+            PluginBuilder::on_all_request(|_| async {});
+            PluginBuilder::drop(|| async {});
+        }
+
+        fn pin_something() -> std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send>> {
+            Box::pin(async {
+                test_something().await;
+            })
+        }
+
+
+        let mut bot = Bot::build(conf);
+        bot.mount_main("some", "0.0.1", Arc::new(pin_something));
+        let main_foo = bot.plugins.get("some").unwrap().main.clone();
+        let bot = Arc::new(RwLock::new(bot));
+
+
+        let p = PluginBuilder::new(
+            "some".to_string(),
+            bot.clone(),
+            123,
+            vec![],
+            IpAddr::V4(Ipv4Addr::new(1, 1, 1, 1)),
             8081,
-            "".to_string(),
-        ),
-        false,
-    );
-
-    let (api_tx, _): (mpsc::Sender<ApiAndOneshot>, mpsc::Receiver<ApiAndOneshot>) =
-        mpsc::channel(1);
-
-    async fn test_something() {
-        PluginBuilder::on_msg(|_| async {});
-        PluginBuilder::on_admin_msg(|_| async {});
-        PluginBuilder::on_group_msg(|_| async {});
-        PluginBuilder::on_private_msg(|_| async {});
-        PluginBuilder::on_all_notice(|_| async {});
-        PluginBuilder::on_all_request(|_| async {});
-    }
-
-    fn pin_something() -> std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send>> {
-        Box::pin(async {
-            test_something().await;
-        })
-    }
+            api_tx,
+        );
+        PLUGIN_BUILDER.scope(p, (main_foo)()).await;
 
 
-    let mut bot = Bot::build(conf);
-    bot.mount_main("some", "0.0.1", Arc::new(pin_something));
-    let main_foo = bot.plugins.get("some").unwrap().main.clone();
-    let bot = Arc::new(RwLock::new(bot));
+        let bot_lock = bot.write().unwrap();
+        let bot_plugin = bot_lock.plugins.get("some").unwrap();
 
+        // 检测里面是不是每个类型的闭包都是一个
+        let mut counts = std::collections::HashMap::new();
+        counts.insert(
+            "MsgFn",
+            bot_plugin
+                .listen
+                .msg
+                .iter()
+                .filter(|&msg| matches!(msg.as_ref(), ListenMsgFn::Msg(_)))
+                .count(),
+        );
+        counts.insert(
+            "PrivateMsgFn",
+            bot_plugin
+                .listen
+                .msg
+                .iter()
+                .filter(|&msg| matches!(msg.as_ref(), ListenMsgFn::PrivateMsg(_)))
+                .count(),
+        );
+        counts.insert(
+            "GroupMsgFn",
+            bot_plugin
+                .listen
+                .msg
+                .iter()
+                .filter(|&msg| matches!(msg.as_ref(), ListenMsgFn::GroupMsg(_)))
+                .count(),
+        );
+        counts.insert(
+            "AdminMsgFn",
+            bot_plugin
+                .listen
+                .msg
+                .iter()
+                .filter(|&msg| matches!(msg.as_ref(), ListenMsgFn::AdminMsg(_)))
+                .count(),
+        );
+        counts.insert("AllNoticeFn", bot_plugin.listen.notice.len());
+        counts.insert("AllRequestFn", bot_plugin.listen.request.len());
+        counts.insert("KoviEventDropFn", bot_plugin.listen.drop.len());
 
-    let join = tokio::spawn({
-        let p = PluginBuilder::new("some".to_string(), bot.clone(), api_tx);
-        PLUGIN_BUILDER.scope(p, (main_foo)())
-    });
-
-    join.await.unwrap();
-
-    let bot_lock = bot.write().unwrap();
-    let bot_plugin = bot_lock.plugins.get("some").unwrap();
-
-    // 检测里面是不是每个类型的闭包都是一个
-    let mut counts = std::collections::HashMap::new();
-    counts.insert(
-        "MsgFn",
-        bot_plugin
-            .listen
-            .msg
-            .iter()
-            .filter(|&msg| matches!(msg.as_ref(), ListenMsgFn::Msg(_)))
-            .count(),
-    );
-    counts.insert(
-        "PrivateMsgFn",
-        bot_plugin
-            .listen
-            .msg
-            .iter()
-            .filter(|&msg| matches!(msg.as_ref(), ListenMsgFn::PrivateMsg(_)))
-            .count(),
-    );
-    counts.insert(
-        "GroupMsgFn",
-        bot_plugin
-            .listen
-            .msg
-            .iter()
-            .filter(|&msg| matches!(msg.as_ref(), ListenMsgFn::GroupMsg(_)))
-            .count(),
-    );
-    counts.insert(
-        "AdminMsgFn",
-        bot_plugin
-            .listen
-            .msg
-            .iter()
-            .filter(|&msg| matches!(msg.as_ref(), ListenMsgFn::AdminMsg(_)))
-            .count(),
-    );
-    counts.insert("AllNoticeFn", bot_plugin.listen.notice.len());
-    counts.insert("AllRequestFn", bot_plugin.listen.request.len());
-    counts.insert("KoviEventDropFn", bot_plugin.listen.drop.len());
-
-    for (key, &count) in counts.iter() {
-        assert_eq!(count, 1, "{} should have exactly one closure", key);
+        for (key, &count) in counts.iter() {
+            assert_eq!(count, 1, "{} should have exactly one closure", key);
+        }
     }
 }

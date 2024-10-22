@@ -44,7 +44,7 @@ impl TaskManager {
         let mut task_manager = self.handles.lock();
 
         let map = task_manager.map.borrow_mut();
-
+        println!("{:?}", map);
         let vec = match map.get(plugin_name) {
             Some(v) => v,
             None => return,
@@ -108,17 +108,17 @@ where
             tokio::spawn(PLUGIN_NAME.scope(name, future))
         };
 
-        let _about_join = join.abort_handle();
+        let about_join = join.abort_handle();
 
         let mut task_abort_handles = TASK_MANAGER.handles.lock();
 
-        let _aborts = task_abort_handles
+        let aborts = task_abort_handles
             .map
             .entry(name.deref().to_string())
             .or_default();
 
-        // aborts.push(about_join);
-        // drop(task_abort_handles);
+        aborts.push(about_join);
+        drop(task_abort_handles);
         join
     })
 }

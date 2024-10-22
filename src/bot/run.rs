@@ -6,7 +6,6 @@ use crate::{task::PLUGIN_NAME, PluginBuilder};
 use log::error;
 use std::{
     borrow::Borrow,
-    process::exit,
     sync::{Arc, RwLock},
 };
 use tokio::{
@@ -88,26 +87,40 @@ impl Bot {
                 }
             }
             if let Some(drop_task) = drop_task {
-                log::info!("A plugin is performing its shutdown tasks, please wait. 有插件正在进行结束工作，请稍候。");
                 match drop_task.await {
                     Ok(_) => {}
                     Err(e) => {
                         error!("{}", e)
                     }
                 };
-                exit(0)
             }
         });
     }
 
     fn init_plugin_builder(bot: &Arc<RwLock<Self>>, api_tx: mpsc::Sender<ApiAndOneshot>) {
         let mut bot_ = bot.write().unwrap();
-
+        let (main_admin, admin, host, port) = {
+            (
+                bot_.information.main_admin,
+                bot_.information.admin.clone(),
+                bot_.information.server.host,
+                bot_.information.server.port,
+            )
+        };
         for (name, plugins) in bot_.plugins.iter_mut() {
-            let plugin_builder = PluginBuilder::new(name.clone(), bot.clone(), api_tx.clone());
+            let plugin_builder = PluginBuilder::new(
+                name.clone(),
+                bot.clone(),
+                main_admin,
+                admin.clone(),
+                host,
+                port,
+                api_tx.clone(),
+            );
 
             plugins.plugin_builder = Some(plugin_builder);
         }
+        println!("3");
     }
 
     // 运行所有main()
@@ -127,11 +140,12 @@ impl Bot {
 
         let mut enabled = plugin.enabled.subscribe();
         let main = plugin.main.clone();
+
         tokio::spawn(async move {
             tokio::select! {
                 _ = PLUGIN_NAME.scope(
                         Arc::new(plugin_name),
-                        PLUGIN_BUILDER.scope(plugin_builder, (main)()),
+                        PLUGIN_BUILDER.scope(plugin_builder, main()),
                 ) =>{}
                 _ = async {
                         loop {

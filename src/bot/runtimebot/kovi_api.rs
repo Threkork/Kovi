@@ -12,10 +12,14 @@ use std::{
 pub trait KoviApi {
     /// 获取插件自己的路径
     fn get_data_path(&self) -> PathBuf;
-    /// 获取 KoviBot 用来操控 KoviBot 自身。危险⚠️
-    fn get_kovi_bot(&self) -> Arc<RwLock<Bot>>;
 
     /// 卸载传入的插件
+    ///
+    /// 并且因为要运行插件可能存在的 drop 闭包，所以需要异步。
+    ///
+    /// # error
+    ///
+    /// 如果寻找不到插件，会报错 BotError::PluginNotFound
     fn disable_plugin<T: AsRef<str> + std::marker::Send>(
         &self,
         plugin_name: T,
@@ -33,10 +37,6 @@ impl KoviApi for RuntimeBot {
         current_dir
     }
 
-    fn get_kovi_bot(&self) -> Arc<RwLock<Bot>> {
-        self.bot.clone()
-    }
-
     fn disable_plugin<T: AsRef<str> + std::marker::Send>(
         &self,
         plugin_name: T,
@@ -50,13 +50,6 @@ impl KoviApi for RuntimeBot {
 }
 
 
-/// 卸载传入的插件
-///
-/// 并且因为要运行插件可能存在的 drop 闭包，所以需要异步。
-///
-/// # error
-///
-/// 如果寻找不到插件，会报错 BotError::PluginNotFound
 fn disable_plugin<T: AsRef<str>>(bot: Arc<RwLock<Bot>>, plugin_name: T) -> Result<(), BotError> {
     let mut join_handles = Vec::new();
     {
@@ -71,18 +64,23 @@ fn disable_plugin<T: AsRef<str>>(bot: Arc<RwLock<Bot>>, plugin_name: T) -> Resul
 
 
         let plugin_name_ = Arc::new(plugin_name.to_string());
+        println!("{}", bot_plugin.listen.drop.len());
         for listen in &bot_plugin.listen.drop {
             let listen_clone = listen.clone();
             let plugin_name_ = plugin_name_.clone();
             let handle = tokio::spawn(async move {
-                PLUGIN_NAME.scope(plugin_name_, Bot::handler_drop(listen_clone));
+                PLUGIN_NAME
+                    .scope(plugin_name_, Bot::handler_drop(listen_clone))
+                    .await;
             });
             join_handles.push(handle);
         }
 
         TASK_MANAGER.disable_plugin(plugin_name);
 
-        bot_plugin.enabled.send(false).unwrap();
+        bot_plugin.enabled.send_modify(|v| {
+            *v = false;
+        });
         bot_plugin.listen.clear();
     }
 

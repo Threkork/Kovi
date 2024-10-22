@@ -42,7 +42,7 @@ impl Bot {
                         for listen in &plugin.listen.drop {
                             let name = name_.clone();
                             let listen = listen.clone();
-
+                            log::info!("Plugin '{}' is dropping, please wait. 插件 '{}' 正在做最后清理，请稍后。", name, name);
                             let task =
                                 tokio::spawn(PLUGIN_NAME.scope(name, Self::handler_drop(listen)));
                             task_vec.push(task);

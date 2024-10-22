@@ -8,6 +8,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{self, Value};
 use std::collections::HashMap;
 use std::env;
+use std::fmt::Debug;
 use std::future::Future;
 use std::io::Write as _;
 use std::net::Ipv4Addr;
