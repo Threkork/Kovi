@@ -1,8 +1,8 @@
-use crate::bot::*;
+use crate::{bot::*, task::PLUGIN_NAME};
 use log::{debug, error, info};
 use plugin_builder::{
     event::{AllMsgEvent, AllNoticeEvent, AllRequestEvent},
-    ListenFn,
+    AllNoticeFn, AllRequestFn, ListenMsgFn, NoArgsFn,
 };
 use serde_json::{json, Value};
 use std::sync::{Arc, RwLock};
@@ -31,26 +31,30 @@ impl Bot {
         }
     }
 
-    async fn handle_kovi_event(bot: Arc<RwLock<Self>>, event: KoviEvent) {
-        let plugins = bot.read().unwrap().plugins.clone();
-        // let event = Arc::new(event);
-        #[allow(clippy::needless_late_init)]
-        let drop_task;
-        match event {
-            KoviEvent::Drop => {
-                let mut task_vec = Vec::new();
-                for plugin in plugins.into_values() {
-                    for listen in plugin.listen {
-                        // let event_clone = Arc::clone(&event);
-                        task_vec.push(tokio::spawn(async move { handler_kovi_drop(listen).await }));
+    pub(crate) async fn handle_kovi_event(bot: Arc<RwLock<Self>>, event: KoviEvent) {
+        let drop_task = {
+            let bot_read = bot.read().unwrap();
+            match event {
+                KoviEvent::Drop => {
+                    let mut task_vec = Vec::new();
+                    for (name, plugin) in bot_read.plugins.iter() {
+                        let name_ = Arc::new(name.clone());
+                        for listen in &plugin.listen.drop {
+                            let name = name_.clone();
+                            let listen = listen.clone();
+
+                            let task =
+                                tokio::spawn(PLUGIN_NAME.scope(name, Self::handler_drop(listen)));
+                            task_vec.push(task);
+                        }
                     }
+                    Some(task_vec)
                 }
-                drop_task = Some(task_vec)
             }
-        }
+        };
         if let Some(drop_task) = drop_task {
             for task in drop_task {
-                task.await.unwrap()
+                let _ = task.await;
             }
         }
     }
@@ -64,7 +68,7 @@ impl Bot {
             match meta_event_type.as_str().unwrap() {
                 // 生命周期一开始请求bot的信息
                 "lifecycle" => {
-                    handler_lifecycle(api_tx).await;
+                    Self::handler_lifecycle(api_tx).await;
                     return;
                 }
                 "heartbeat" => {
@@ -129,129 +133,171 @@ impl Bot {
             }
         };
 
-        let plugins = bot.read().unwrap().plugins.clone();
+        let bot_read = bot.read().unwrap();
 
         match event {
             OneBotEvent::Msg(e) => {
                 let e = Arc::new(e);
-                for plugin in plugins.into_values() {
-                    for listen in plugin.listen {
+                for (name, plugin) in bot_read.plugins.iter() {
+                    let name_ = Arc::new(name.clone());
+
+                    for listen in &plugin.listen.msg {
+                        let name = name_.clone();
                         let event_clone = Arc::clone(&e);
                         let bot_clone = bot.clone();
-                        tokio::spawn(handle_msg(listen, event_clone, bot_clone));
+                        let listen = listen.clone();
+                        let mut enabled = plugin.enabled.subscribe();
+                        tokio::spawn(async move {
+                            tokio::select! {
+                                _ = PLUGIN_NAME.scope(name, Self::handle_msg(listen, event_clone, bot_clone)) => {}
+                                _ = async {
+                                        loop {
+                                            enabled.changed().await.unwrap();
+                                            if !*enabled.borrow_and_update() {
+                                                break;
+                                            }
+                                        }
+                                } => {}
+                            }
+                        });
                     }
                 }
             }
             OneBotEvent::AllNotice(e) => {
                 let e = Arc::new(e);
-                for plugin in plugins.into_values() {
-                    for listen in plugin.listen {
+                for (name, plugin) in bot_read.plugins.iter() {
+                    let name_ = Arc::new(name.clone());
+
+                    for listen in &plugin.listen.notice {
+                        let name = name_.clone();
                         let event_clone = Arc::clone(&e);
-                        tokio::spawn(handler_notice(listen, event_clone));
+                        let listen = listen.clone();
+                        let mut enabled = plugin.enabled.subscribe();
+
+                        tokio::spawn(async move {
+                            tokio::select! {
+                                _ = PLUGIN_NAME.scope(name, Self::handler_notice(listen, event_clone)) => {}
+                                _ = async {
+                                        loop {
+                                            enabled.changed().await.unwrap();
+                                            if !*enabled.borrow_and_update() {
+                                                break;
+                                            }
+                                        }
+                                } => {}
+                            }
+                        });
                     }
                 }
             }
             OneBotEvent::AllRequest(e) => {
                 let e = Arc::new(e);
-                for plugin in plugins.into_values() {
-                    for listen in plugin.listen {
+                for (name, plugin) in bot_read.plugins.iter() {
+                    let name_ = Arc::new(name.clone());
+
+                    for listen in &plugin.listen.request {
+                        let name = name_.clone();
                         let event_clone = Arc::clone(&e);
-                        tokio::spawn(handler_request(listen, event_clone));
+                        let listen = listen.clone();
+                        let mut enabled = plugin.enabled.subscribe();
+
+                        tokio::spawn(async move {
+                            tokio::select! {
+                                _ = PLUGIN_NAME.scope(name, Self::handler_request(listen, event_clone)) => {}
+                                _ = async {
+                                        loop {
+                                            enabled.changed().await.unwrap();
+                                            if !*enabled.borrow_and_update() {
+                                                break;
+                                        }}} => {}
+                            }
+                        });
                     }
                 }
             }
         }
     }
-}
 
-async fn handle_msg(listen: ListenFn, e: Arc<AllMsgEvent>, bot: Arc<RwLock<Bot>>) {
-    match listen {
-        ListenFn::MsgFn(handler) => {
-            handler(e).await;
-        }
-
-        ListenFn::AdminMsgFn(handler) => {
-            let user_id = e.user_id;
-            let admin_vec = {
-                let bot = bot.read().unwrap();
-                let mut admin_vec = bot.information.admin.clone();
-                admin_vec.push(bot.information.main_admin);
-                admin_vec
-            };
-            if admin_vec.contains(&user_id) {
+    async fn handle_msg(listen: Arc<ListenMsgFn>, e: Arc<AllMsgEvent>, bot: Arc<RwLock<Bot>>) {
+        match &*listen {
+            ListenMsgFn::Msg(handler) => {
                 handler(e).await;
             }
-        }
-        ListenFn::PrivateMsgFn(handler) => {
-            if !e.is_group() {
-                handler(e).await;
+
+            ListenMsgFn::AdminMsg(handler) => {
+                let user_id = e.user_id;
+                let admin_vec = {
+                    let bot = bot.read().unwrap();
+                    let mut admin_vec = bot.information.admin.clone();
+                    admin_vec.push(bot.information.main_admin);
+                    admin_vec
+                };
+                if admin_vec.contains(&user_id) {
+                    handler(e).await;
+                }
+            }
+            ListenMsgFn::PrivateMsg(handler) => {
+                if !e.is_group() {
+                    handler(e).await;
+                }
+            }
+            ListenMsgFn::GroupMsg(handler) => {
+                if e.is_group() {
+                    handler(e).await;
+                }
             }
         }
-        ListenFn::GroupMsgFn(handler) => {
-            if e.is_group() {
-                handler(e).await;
+    }
+
+    async fn handler_notice(listen: AllNoticeFn, e: Arc<AllNoticeEvent>) {
+        listen(e).await;
+    }
+
+    async fn handler_request(listen: AllRequestFn, e: Arc<AllRequestEvent>) {
+        listen(e).await;
+    }
+
+    pub(crate) async fn handler_drop(listen: NoArgsFn) {
+        listen().await;
+    }
+
+    pub(crate) async fn handler_lifecycle(api_tx_: mpsc::Sender<ApiAndOneshot>) {
+        let api_msg = SendApi::new("get_login_info", json!({}), "kovi");
+
+        #[allow(clippy::type_complexity)]
+        let (api_tx, api_rx): (
+            oneshot::Sender<Result<ApiReturn, ApiReturn>>,
+            oneshot::Receiver<Result<ApiReturn, ApiReturn>>,
+        ) = oneshot::channel();
+
+        api_tx_.send((api_msg, Some(api_tx))).await.unwrap();
+
+        let receive = match api_rx.await {
+            Ok(v) => v,
+            Err(e) => {
+                error!("Lifecycle Error, get bot info failed: {}", e);
+                return;
             }
-        }
-        _ => {}
+        };
+
+        let self_info_value = match receive {
+            Ok(v) => v,
+            Err(e) => {
+                error!("Lifecycle Error, get bot info failed: {}", e);
+                return;
+            }
+        };
+
+        let self_id = self_info_value
+            .data
+            .get("user_id")
+            .unwrap()
+            .as_i64()
+            .unwrap();
+        let self_name = self_info_value.data.get("nickname").unwrap().to_string();
+        info!(
+            "Bot connection successful，Nickname:{},ID:{}",
+            self_name, self_id
+        );
     }
-}
-
-async fn handler_notice(listen: ListenFn, e: Arc<AllNoticeEvent>) {
-    if let ListenFn::AllNoticeFn(handler) = listen {
-        handler(e).await;
-    }
-}
-
-async fn handler_request(listen: ListenFn, e: Arc<AllRequestEvent>) {
-    if let ListenFn::AllRequestFn(handler) = listen {
-        handler(e).await;
-    }
-}
-
-async fn handler_kovi_drop(listen: ListenFn) {
-    if let ListenFn::KoviEventDropFn(handler) = listen {
-        info!("A plugin is performing its shutdown tasks, please wait. 有插件正在进行结束工作，请稍候。");
-        handler().await;
-    }
-}
-
-
-pub(crate) async fn handler_lifecycle(api_tx_: mpsc::Sender<ApiAndOneshot>) {
-    let api_msg = SendApi::new("get_login_info", json!({}), "kovi");
-
-    #[allow(clippy::type_complexity)]
-    let (api_tx, api_rx): (
-        oneshot::Sender<Result<ApiReturn, ApiReturn>>,
-        oneshot::Receiver<Result<ApiReturn, ApiReturn>>,
-    ) = oneshot::channel();
-
-    api_tx_.send((api_msg, Some(api_tx))).await.unwrap();
-
-    let receive = match api_rx.await {
-        Ok(v) => v,
-        Err(e) => {
-            error!("Lifecycle Error, get bot info failed: {}", e);
-            return;
-        }
-    };
-
-    let self_info_value = match receive {
-        Ok(v) => v,
-        Err(e) => {
-            error!("Lifecycle Error, get bot info failed: {}", e);
-            return;
-        }
-    };
-
-    let self_id = self_info_value
-        .data
-        .get("user_id")
-        .unwrap()
-        .as_i64()
-        .unwrap();
-    let self_name = self_info_value.data.get("nickname").unwrap().to_string();
-    info!(
-        "Bot connection successful，Nickname:{},ID:{}",
-        self_name, self_id
-    );
 }

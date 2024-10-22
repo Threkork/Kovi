@@ -11,6 +11,7 @@
 pub mod bot;
 pub mod error;
 pub mod logger;
+pub mod task;
 /// 提供一些方便的插件开发函数
 pub mod utils;
 
@@ -22,8 +23,9 @@ pub use bot::plugin_builder::PluginBuilder;
 pub use bot::runtimebot::RuntimeBot;
 pub use bot::ApiReturn;
 pub use bot::Bot;
-pub use error::Error;
+pub use error::MessageError;
 pub use kovi_macros::plugin;
+pub use task::spawn;
 
 pub use chrono;
 pub use croner;

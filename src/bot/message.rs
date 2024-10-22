@@ -3,7 +3,7 @@ use regex::Regex;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
-use crate::error::Error;
+use crate::error::MessageError;
 
 pub mod add;
 
@@ -129,18 +129,18 @@ impl Message {
 }
 
 impl Message {
-    pub fn from_value(v: Value) -> Result<Message, Error> {
+    pub fn from_value(v: Value) -> Result<Message, MessageError> {
         if let Some(v) = v.as_array() {
             match Message::from_vec_segment_value(v.clone()) {
                 Ok(msg) => return Ok(msg),
-                Err(err) => return Err(Error::ParseError(err.to_string())),
+                Err(err) => return Err(MessageError::ParseError(err.to_string())),
             };
         }
         if let Some(v) = v.as_str() {
             return Ok(Message::from(v));
         }
 
-        Err(Error::ParseError(
+        Err(MessageError::ParseError(
             "Message::from_value only accept array".to_string(),
         ))
     }

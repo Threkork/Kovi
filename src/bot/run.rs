@@ -1,10 +1,11 @@
 use super::{
     handler::{InternalEvent, KoviEvent},
-    ApiAndOneshot, Bot,
+    ApiAndOneshot, Bot, BotPlugin,
 };
-use crate::PluginBuilder;
+use crate::{task::PLUGIN_NAME, PluginBuilder};
 use log::error;
 use std::{
+    borrow::Borrow,
     process::exit,
     sync::{Arc, RwLock},
 };
@@ -16,13 +17,6 @@ use tokio::{
 tokio::task_local! {
     pub(crate) static PLUGIN_BUILDER: PluginBuilder;
 }
-
-// pub(crate) type MpscCronTask = (
-//     Cron,
-//     String,
-//     Arc<dyn Fn() -> Pin<Box<dyn Future<Output = ()> + Send>> + Send + Sync>,
-// );
-
 
 impl Bot {
     /// 运行bot
@@ -49,9 +43,6 @@ impl Bot {
             let (api_tx, api_rx): (mpsc::Sender<ApiAndOneshot>, mpsc::Receiver<ApiAndOneshot>) =
                 mpsc::channel(32);
 
-            // let (cron_tx, mut cron_rx): (mpsc::Sender<MpscCronTask>, mpsc::Receiver<MpscCronTask>) =
-            //     mpsc::channel(32);
-
             // 事件连接
             tokio::spawn({
                 let event_tx = event_tx.clone();
@@ -76,18 +67,11 @@ impl Bot {
             tokio::spawn({
                 let bot = bot.clone();
                 let api_tx = api_tx.clone();
-                Self::plugin_main(bot, api_tx)
+                async move {
+                    Self::init_plugin_builder(&bot, api_tx);
+                    Self::run_mains(&bot)
+                }
             });
-
-            //定时任务
-            // tokio::spawn(async move {
-            //     while let Some(v) = cron_rx.recv().await {
-            //         let (cron, plugin_name, task) = v;
-            //         let now = chrono::Local::now();
-            //         let next = cron.find_next_occurrence(&now, false).unwrap();
-            //     }
-            // });
-
 
             let mut drop_task = None;
             //处理事件，每个事件都会来到这里
@@ -104,6 +88,7 @@ impl Bot {
                 }
             }
             if let Some(drop_task) = drop_task {
+                log::info!("A plugin is performing its shutdown tasks, please wait. 有插件正在进行结束工作，请稍候。");
                 match drop_task.await {
                     Ok(_) => {}
                     Err(e) => {
@@ -115,18 +100,49 @@ impl Bot {
         });
     }
 
-    // 运行所有main()
-    async fn plugin_main(bot: Arc<RwLock<Self>>, api_tx: mpsc::Sender<ApiAndOneshot>) {
-        let main_job_map = bot.read().unwrap().plugins.clone();
+    fn init_plugin_builder(bot: &Arc<RwLock<Self>>, api_tx: mpsc::Sender<ApiAndOneshot>) {
+        let mut bot_ = bot.write().unwrap();
 
-        for (name, plugins) in main_job_map {
-            tokio::spawn({
-                let plugin_builder = PluginBuilder::new(name.clone(), bot.clone(), api_tx.clone());
+        for (name, plugins) in bot_.plugins.iter_mut() {
+            let plugin_builder = PluginBuilder::new(name.clone(), bot.clone(), api_tx.clone());
 
-                // 异步运行 main()
-                PLUGIN_BUILDER.scope(plugin_builder, (plugins.main)())
-            });
+            plugins.plugin_builder = Some(plugin_builder);
         }
+    }
+
+    // 运行所有main()
+    fn run_mains(bot: &Arc<RwLock<Self>>) {
+        let bot_ = bot.read().unwrap();
+        let main_job_map = bot_.plugins.borrow();
+
+        for plugins in main_job_map.values() {
+            Self::run_plugin_main(plugins);
+        }
+    }
+
+    // 运行单个插件的main()
+    pub(crate) fn run_plugin_main(plugin: &BotPlugin) {
+        let plugin_builder = plugin.plugin_builder.as_ref().unwrap().clone();
+        let plugin_name = plugin_builder.runtime_bot.plugin_name.clone();
+
+        let mut enabled = plugin.enabled.subscribe();
+        let main = plugin.main.clone();
+        tokio::spawn(async move {
+            tokio::select! {
+                _ = PLUGIN_NAME.scope(
+                        Arc::new(plugin_name),
+                        PLUGIN_BUILDER.scope(plugin_builder, (main)()),
+                ) =>{}
+                _ = async {
+                        loop {
+                            enabled.changed().await.unwrap();
+                            if !*enabled.borrow_and_update() {
+                                break;
+                            }
+                        }
+                } => {}
+            }
+        });
     }
 }
 

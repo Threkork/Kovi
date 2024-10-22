@@ -45,7 +45,6 @@ pub fn rand_echo() -> String {
     s
 }
 
-
 type ApiOneshotSender = oneshot::Sender<Result<ApiReturn, ApiReturn>>;
 type ApiOneshotReceiver = oneshot::Receiver<Result<ApiReturn, ApiReturn>>;
 

@@ -1,4 +1,5 @@
 use super::{exit_and_eprintln, handler::InternalEvent, ApiAndOneshot, ApiReturn, Bot};
+use ahash::{HashMapExt as _, RandomState};
 use futures_util::{SinkExt, StreamExt};
 use log::{debug, warn};
 use reqwest::header::HeaderValue;
@@ -6,9 +7,9 @@ use std::{collections::HashMap, net::IpAddr, sync::Arc};
 use tokio::sync::{mpsc, Mutex};
 use tokio_tungstenite::{connect_async, tungstenite::client::IntoClientRequest};
 
-
-type ApiTxMap =
-    Arc<Mutex<HashMap<String, tokio::sync::oneshot::Sender<Result<ApiReturn, ApiReturn>>>>>;
+type ApiTxMap = Arc<
+    Mutex<HashMap<String, tokio::sync::oneshot::Sender<Result<ApiReturn, ApiReturn>>, RandomState>>,
+>;
 
 impl Bot {
     pub(crate) async fn ws_connect(
@@ -93,7 +94,7 @@ impl Bot {
         let (write, read) = ws_stream.split();
         let write = Arc::new(Mutex::new(write));
 
-        let api_tx_map: ApiTxMap = Arc::new(Mutex::new(HashMap::new()));
+        let api_tx_map: ApiTxMap = Arc::new(Mutex::new(HashMap::<_, _, RandomState>::new()));
 
         //读
         tokio::spawn({

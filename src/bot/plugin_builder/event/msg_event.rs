@@ -1,4 +1,4 @@
-use super::{Anonymous, Sender};
+use super::{AllNoticeEvent, AllRequestEvent, Anonymous, Sender};
 use crate::bot::runtimebot::send_api_request_with_forget;
 use crate::{
     bot::{plugin_builder::event::Sex, ApiAndOneshot, SendApi},
@@ -14,6 +14,17 @@ use log::error;
 
 #[cfg(feature = "cqstring")]
 use crate::bot::message::{cq_to_arr, CQMessage};
+
+pub trait Event {}
+
+impl Event for AllMsgEvent {
+}
+
+impl Event for AllNoticeEvent {
+}
+
+impl Event for AllRequestEvent {
+}
 
 #[derive(Debug, Clone)]
 pub struct AllMsgEvent {
@@ -53,6 +64,7 @@ pub struct AllMsgEvent {
 
     api_tx: mpsc::Sender<ApiAndOneshot>,
 }
+
 
 impl AllMsgEvent {
     pub(crate) fn new(

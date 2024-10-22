@@ -1,24 +1,28 @@
-use croner::Cron;
+use ahash::{HashMapExt as _, RandomState};
 use dialoguer::theme::ColorfulTheme;
 use dialoguer::Input;
 use handler::InternalEvent;
 use log::{debug, error};
-use plugin_builder::{ListenFn, NoArgsFn};
+use plugin_builder::Listen;
 use serde::{Deserialize, Serialize};
-use serde_json::{self, json, Value};
+use serde_json::{self, Value};
 use std::collections::HashMap;
 use std::env;
 use std::future::Future;
+use std::io::Write as _;
 use std::net::Ipv4Addr;
 use std::pin::Pin;
 use std::{fs, net::IpAddr, process::exit, sync::Arc};
 use tokio::sync::mpsc::{self, Sender};
-use tokio::sync::oneshot;
+use tokio::sync::{oneshot, watch};
+
+use crate::PluginBuilder;
 
 mod connect;
 mod handler;
 mod run;
 
+pub mod controller;
 pub mod message;
 pub mod plugin_builder;
 pub mod runtimebot;
@@ -26,18 +30,26 @@ pub mod runtimebot;
 /// kovi的配置
 #[derive(Deserialize, Serialize)]
 pub struct KoviConf {
+    pub config: Config,
+    pub server: Server,
+}
+
+#[derive(Deserialize, Serialize)]
+pub struct Config {
     pub main_admin: i64,
     pub admins: Vec<i64>,
-    pub server: Server,
     pub debug: bool,
 }
+
 impl KoviConf {
     pub fn new(main_admin: i64, admins: Option<Vec<i64>>, server: Server, debug: bool) -> Self {
         KoviConf {
-            main_admin,
-            admins: admins.unwrap_or_default(),
+            config: Config {
+                main_admin,
+                admins: admins.unwrap_or_default(),
+                debug,
+            },
             server,
-            debug,
         }
     }
 }
@@ -48,15 +60,16 @@ type KoviAsyncFn = dyn Fn() -> Pin<Box<dyn Future<Output = ()> + Send>> + Send +
 #[derive(Clone)]
 pub struct Bot {
     pub information: BotInformation,
-    pub plugins: HashMap<String, BotPlugin>,
+    pub plugins: HashMap<String, BotPlugin, RandomState>,
 }
 
 #[derive(Clone)]
 pub struct BotPlugin {
+    pub(crate) enabled: watch::Sender<bool>,
     pub version: String,
-    pub main: Arc<KoviAsyncFn>,
-    pub listen: Vec<ListenFn>,
-    pub cron: Vec<(Cron, NoArgsFn)>,
+    pub(crate) main: Arc<KoviAsyncFn>,
+    pub(crate) listen: Listen,
+    pub(crate) plugin_builder: Option<PluginBuilder>,
 }
 
 /// bot信息结构体
@@ -72,6 +85,16 @@ pub struct Server {
     pub host: IpAddr,
     pub port: u16,
     pub access_token: String,
+}
+
+impl Server {
+    pub fn new(host: IpAddr, port: u16, access_token: String) -> Self {
+        Server {
+            host,
+            port,
+            access_token,
+        }
+    }
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
@@ -120,6 +143,14 @@ impl SendApi {
     }
 }
 
+#[derive(Deserialize)]
+struct OldConf {
+    main_admin: i64,
+    admin: Vec<i64>,
+    server: Server,
+    debug: bool,
+}
+
 impl Bot {
     /// 构建一个bot实例
     /// # Examples
@@ -140,11 +171,11 @@ impl Bot {
     pub fn build(conf: KoviConf) -> Bot {
         Bot {
             information: BotInformation {
-                main_admin: conf.main_admin,
-                admin: conf.admins,
+                main_admin: conf.config.main_admin,
+                admin: conf.config.admins,
                 server: conf.server,
             },
-            plugins: HashMap::new(),
+            plugins: HashMap::<_, _, RandomState>::new(),
         }
     }
 
@@ -154,36 +185,60 @@ impl Bot {
     {
         let name = String::from(name);
         let version = String::from(version);
+        let (tx, _rx) = watch::channel(true);
         let bot_plugin = BotPlugin {
+            enabled: tx,
             version,
             main,
-            listen: Vec::new(),
-            cron: Vec::new(),
+            listen: Listen::default(),
+            plugin_builder: None,
         };
         self.plugins.insert(name, bot_plugin);
     }
 
     pub fn load_local_conf() -> KoviConf {
-        let conf_json: KoviConf = match fs::read_to_string("kovi.conf.json") {
-            Ok(v) => match serde_json::from_str(&v) {
-                Ok(v) => v,
+        enum KoviConfFile {
+            Json,
+            Toml,
+            None,
+        }
+
+        //检测文件是kovi.conf.json还是kovi.conf.toml
+        let kovi_conf_file = if fs::metadata("kovi.conf.toml").is_ok() {
+            KoviConfFile::Toml
+        } else if fs::metadata("kovi.conf.json").is_ok() {
+            KoviConfFile::Json
+        } else {
+            KoviConfFile::None
+        };
+
+        let conf_json: KoviConf = match kovi_conf_file {
+            KoviConfFile::Toml => match fs::read_to_string("kovi.conf.toml") {
+                Ok(v) => match toml::from_str(&v) {
+                    Ok(conf) => conf,
+                    Err(err) => {
+                        error!("Failed to parse TOML: {}", err);
+                        exit(1);
+                    }
+                },
                 Err(err) => {
-                    error!("{err}");
-                    exit(1)
+                    error!("Failed to read TOML file: {}", err);
+                    exit(1);
                 }
             },
-            Err(_) => match config_file_write_and_return() {
-                Ok(v) => v,
+            KoviConfFile::Json => old_json_conf_to_toml_conf(),
+            KoviConfFile::None => match config_file_write_and_return() {
+                Ok(conf) => conf,
                 Err(err) => {
-                    error!("{err}");
-                    exit(1)
+                    error!("Failed to create config file: {}", err);
+                    exit(1);
                 }
             },
         };
 
         unsafe {
             if env::var("RUST_LOG").is_err() {
-                if conf_json.debug {
+                if conf_json.config.debug {
                     env::set_var("RUST_LOG", "debug");
                 } else {
                     env::set_var("RUST_LOG", "info");
@@ -222,23 +277,56 @@ fn config_file_write_and_return() -> Result<KoviConf, std::io::Error> {
         .interact_text()
         .unwrap();
 
-    let config = json!({
-        "main_admin": main_admin,
-        "admins": [],
-        "server": {
-            "host": host,
-            "port": port,
-            "access_token": access_token
-        },
-        "debug": false
-    });
+    let config = KoviConf::new(
+        main_admin,
+        None,
+        Server::new(host, port, access_token),
+        false,
+    );
 
-    let config: KoviConf = serde_json::from_value(config).unwrap();
+    let file = fs::File::create("kovi.conf.toml")?;
 
-    let file = fs::File::create("kovi.conf.json")?;
-    serde_json::to_writer_pretty(file, &config)?;
+    //写入文件
+    let mut writer = std::io::BufWriter::new(file);
+    let config_str = toml::to_string_pretty(&config).unwrap();
+    writer.write_all(config_str.as_bytes())?;
+
     Ok(config)
 }
+
+fn old_json_conf_to_toml_conf() -> KoviConf {
+    let old_conf: OldConf = match fs::read_to_string("kovi.conf.json") {
+        Ok(v) => match serde_json::from_str(&v) {
+            Ok(conf) => conf,
+            Err(_) => {
+                error!("Load config error, please try deleting kovi.conf.json and reconfigure.\n 加载出错，请尝试删掉kovi.conf.json，重新配置。");
+                exit(1);
+            }
+        },
+        Err(err) => {
+            error!("Failed to read JSON file: {}", err);
+            error!("Load config error, please try deleting kovi.conf.json and reconfigure.\n 加载出错，请尝试删掉kovi.conf.json，重新配置。");
+            exit(1);
+        }
+    };
+
+    let new_conf = KoviConf::new(
+        old_conf.main_admin,
+        Some(old_conf.admin),
+        old_conf.server,
+        old_conf.debug,
+    );
+
+    let toml_str = toml::to_string_pretty(&new_conf).unwrap();
+    fs::write("kovi.conf.toml", toml_str).unwrap();
+
+    if let Err(e) = fs::remove_file("kovi.conf.json") {
+        error!("Failed to remove old JSON config file: {}", e);
+    }
+
+    new_conf
+}
+
 
 pub(crate) async fn exit_and_eprintln<E>(e: E, event_tx: Sender<InternalEvent>)
 where

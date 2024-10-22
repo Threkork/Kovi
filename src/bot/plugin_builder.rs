@@ -17,35 +17,59 @@ pub mod event;
 
 pub type PinFut = Pin<Box<dyn Future<Output = ()> + Send>>;
 
-pub type AllMsgFn = Arc<dyn Fn(Arc<AllMsgEvent>) -> PinFut + Send + Sync + 'static>;
+pub type AllMsgFn = Arc<dyn Fn(Arc<AllMsgEvent>) -> PinFut + Send + Sync>;
 
-pub type AllNoticeFn = Arc<dyn Fn(Arc<AllNoticeEvent>) -> PinFut + Send + Sync + 'static>;
+pub type AllNoticeFn = Arc<dyn Fn(Arc<AllNoticeEvent>) -> PinFut + Send + Sync>;
 
-pub type AllRequestFn = Arc<dyn Fn(Arc<AllRequestEvent>) -> PinFut + Send + Sync + 'static>;
+pub type AllRequestFn = Arc<dyn Fn(Arc<AllRequestEvent>) -> PinFut + Send + Sync>;
 
-pub type NoArgsFn = Arc<dyn Fn() -> PinFut + Send + Sync + 'static>;
+pub type NoArgsFn = Arc<dyn Fn() -> PinFut + Send + Sync>;
 
 #[derive(Clone)]
-pub enum ListenFn {
-    MsgFn(AllMsgFn),
+pub(crate) struct Listen {
+    pub(crate) msg: Vec<Arc<ListenMsgFn>>,
+    pub(crate) notice: Vec<AllNoticeFn>,
+    pub(crate) request: Vec<AllRequestFn>,
+    pub(crate) drop: Vec<NoArgsFn>,
+}
 
-    PrivateMsgFn(AllMsgFn),
-
-    GroupMsgFn(AllMsgFn),
-
-    AdminMsgFn(AllMsgFn),
-
-    AllNoticeFn(AllNoticeFn),
-
-    AllRequestFn(AllRequestFn),
-
-    KoviEventDropFn(NoArgsFn),
+#[derive(Clone)]
+pub(crate) enum ListenMsgFn {
+    Msg(AllMsgFn),
+    PrivateMsg(AllMsgFn),
+    GroupMsg(AllMsgFn),
+    AdminMsg(AllMsgFn),
 }
 
 
+impl Default for Listen {
+    fn default() -> Self {
+        Listen {
+            msg: Vec::new(),
+            notice: Vec::new(),
+            request: Vec::new(),
+            drop: Vec::new(),
+        }
+    }
+}
+
+impl Listen {
+    pub fn clear(&mut self) {
+        self.msg.clear();
+        self.notice.clear();
+        self.request.clear();
+        self.drop.clear();
+        self.msg.shrink_to_fit();
+        self.notice.shrink_to_fit();
+        self.request.shrink_to_fit();
+        self.drop.shrink_to_fit();
+    }
+}
+
+
+#[derive(Clone)]
 pub struct PluginBuilder {
-    // pub(crate) cron_tx: mpsc::Sender<MpscCronTask>,
-    runtime_bot: Arc<RuntimeBot>,
+    pub(crate) runtime_bot: Arc<RuntimeBot>,
 }
 
 impl PluginBuilder {
@@ -101,7 +125,7 @@ impl PluginBuilder {
     }
 
     pub fn get_plugin_name() -> String {
-        PLUGIN_BUILDER.with(|p| p.runtime_bot.plugin_name.clone())
+        PLUGIN_BUILDER.with(|p| p.runtime_bot.plugin_name.to_string())
     }
 
     pub fn get_plugin_host() -> (IpAddr, u16) {
@@ -116,18 +140,27 @@ impl PluginBuilder {
     pub fn on_msg<F, Fut>(handler: F)
     where
         F: Fn(Arc<AllMsgEvent>) -> Fut + Send + Sync + 'static,
-        Fut: Future<Output = ()> + Send + 'static,
+        Fut: Future + Send + 'static,
+        Fut::Output: Send + 'static,
     {
         PLUGIN_BUILDER.with(|p| {
             let mut bot = p.runtime_bot.bot.write().unwrap();
-
             let bot_plugin = bot.plugins.get_mut(&p.runtime_bot.plugin_name).unwrap();
 
             bot_plugin
                 .listen
-                .push(ListenFn::MsgFn(Arc::new(move |event| {
-                    Box::pin(handler(event))
-                })));
+                .msg
+                .push(Arc::new(ListenMsgFn::Msg(Arc::new({
+                    let handler = Arc::new(handler);
+                    move |event| {
+                        Box::pin({
+                            let handler = handler.clone();
+                            async move {
+                                handler(event).await;
+                            }
+                        })
+                    }
+                }))));
         })
     }
 
@@ -137,19 +170,28 @@ impl PluginBuilder {
     /// 注册一个处理程序，用于处理接收到的消息事件（`AllMsgEvent`）。
     pub fn on_admin_msg<F, Fut>(handler: F)
     where
-        F: Fn(Arc<AllMsgEvent>) -> Fut + Send + Sync + 'static,
-        Fut: Future<Output = ()> + Send + 'static,
+        F: Fn(Arc<AllMsgEvent>) -> Fut + Send + Sync + 'static + Clone,
+        Fut: Future + Send + 'static,
+        Fut::Output: Send + 'static,
     {
         PLUGIN_BUILDER.with(|p| {
             let mut bot = p.runtime_bot.bot.write().unwrap();
-
             let bot_plugin = bot.plugins.get_mut(&p.runtime_bot.plugin_name).unwrap();
 
             bot_plugin
                 .listen
-                .push(ListenFn::AdminMsgFn(Arc::new(move |event| {
-                    Box::pin(handler(event))
-                })));
+                .msg
+                .push(Arc::new(ListenMsgFn::AdminMsg(Arc::new({
+                    let handler = Arc::new(handler);
+                    move |event| {
+                        Box::pin({
+                            let handler = handler.clone();
+                            async move {
+                                handler(event).await;
+                            }
+                        })
+                    }
+                }))));
         })
     }
 
@@ -159,36 +201,54 @@ impl PluginBuilder {
     pub fn on_private_msg<F, Fut>(handler: F)
     where
         F: Fn(Arc<AllMsgEvent>) -> Fut + Send + Sync + 'static,
-        Fut: Future<Output = ()> + Send + 'static,
+        Fut: Future + Send + 'static,
+        Fut::Output: Send + 'static,
     {
         PLUGIN_BUILDER.with(|p| {
             let mut bot = p.runtime_bot.bot.write().unwrap();
-
             let bot_plugin = bot.plugins.get_mut(&p.runtime_bot.plugin_name).unwrap();
 
             bot_plugin
                 .listen
-                .push(ListenFn::PrivateMsgFn(Arc::new(move |event| {
-                    Box::pin(handler(event))
-                })));
+                .msg
+                .push(Arc::new(ListenMsgFn::PrivateMsg(Arc::new({
+                    let handler = Arc::new(handler);
+                    move |event| {
+                        Box::pin({
+                            let handler = handler.clone();
+                            async move {
+                                handler(event).await;
+                            }
+                        })
+                    }
+                }))));
         })
     }
 
     pub fn on_group_msg<F, Fut>(handler: F)
     where
         F: Fn(Arc<AllMsgEvent>) -> Fut + Send + Sync + 'static,
-        Fut: Future<Output = ()> + Send + 'static,
+        Fut: Future + Send + 'static,
+        Fut::Output: Send + 'static,
     {
         PLUGIN_BUILDER.with(|p| {
             let mut bot = p.runtime_bot.bot.write().unwrap();
-
             let bot_plugin = bot.plugins.get_mut(&p.runtime_bot.plugin_name).unwrap();
 
             bot_plugin
                 .listen
-                .push(ListenFn::GroupMsgFn(Arc::new(move |event| {
-                    Box::pin(handler(event))
-                })));
+                .msg
+                .push(Arc::new(ListenMsgFn::GroupMsg(Arc::new({
+                    let handler = Arc::new(handler);
+                    move |event| {
+                        Box::pin({
+                            let handler = handler.clone();
+                            async move {
+                                handler(event).await;
+                            }
+                        })
+                    }
+                }))));
         })
     }
 
@@ -199,18 +259,24 @@ impl PluginBuilder {
     pub fn on_all_notice<F, Fut>(handler: F)
     where
         F: Fn(Arc<AllNoticeEvent>) -> Fut + Send + Sync + 'static,
-        Fut: Future<Output = ()> + Send + 'static,
+        Fut: Future + Send + 'static,
+        Fut::Output: Send + 'static,
     {
         PLUGIN_BUILDER.with(|p| {
             let mut bot = p.runtime_bot.bot.write().unwrap();
-
             let bot_plugin = bot.plugins.get_mut(&p.runtime_bot.plugin_name).unwrap();
 
-            bot_plugin
-                .listen
-                .push(ListenFn::AllNoticeFn(Arc::new(move |event| {
-                    Box::pin(handler(event))
-                })));
+            bot_plugin.listen.notice.push(Arc::new({
+                let handler = Arc::new(handler);
+                move |event| {
+                    Box::pin({
+                        let handler = handler.clone();
+                        async move {
+                            handler(event).await;
+                        }
+                    })
+                }
+            }));
         })
     }
 
@@ -220,18 +286,24 @@ impl PluginBuilder {
     pub fn on_all_request<F, Fut>(handler: F)
     where
         F: Fn(Arc<AllRequestEvent>) -> Fut + Send + Sync + 'static,
-        Fut: Future<Output = ()> + Send + 'static,
+        Fut: Future + Send + 'static,
+        Fut::Output: Send + 'static,
     {
         PLUGIN_BUILDER.with(|p| {
             let mut bot = p.runtime_bot.bot.write().unwrap();
-
             let bot_plugin = bot.plugins.get_mut(&p.runtime_bot.plugin_name).unwrap();
 
-            bot_plugin
-                .listen
-                .push(ListenFn::AllRequestFn(Arc::new(move |event| {
-                    Box::pin(handler(event))
-                })));
+            bot_plugin.listen.request.push(Arc::new({
+                let handler = Arc::new(handler);
+                move |event| {
+                    Box::pin({
+                        let handler = handler.clone();
+                        async move {
+                            handler(event).await;
+                        }
+                    })
+                }
+            }));
         })
     }
 
@@ -241,18 +313,24 @@ impl PluginBuilder {
     pub fn drop<F, Fut>(handler: F)
     where
         F: Fn() -> Fut + Send + Sync + 'static,
-        Fut: Future<Output = ()> + Send + 'static,
+        Fut: Future + Send + 'static,
+        Fut::Output: Send + 'static,
     {
         PLUGIN_BUILDER.with(|p| {
             let mut bot = p.runtime_bot.bot.write().unwrap();
-
             let bot_plugin = bot.plugins.get_mut(&p.runtime_bot.plugin_name).unwrap();
 
-            bot_plugin
-                .listen
-                .push(ListenFn::KoviEventDropFn(Arc::new(move || {
-                    Box::pin(handler())
-                })));
+            bot_plugin.listen.drop.push(Arc::new({
+                let handler = Arc::new(handler);
+                move || {
+                    Box::pin({
+                        let handler = handler.clone();
+                        async move {
+                            handler().await;
+                        }
+                    })
+                }
+            }));
         })
     }
 
@@ -262,7 +340,8 @@ impl PluginBuilder {
     pub fn cron<F, Fut>(cron: &str, handler: F) -> Result<(), CronError>
     where
         F: Fn() -> Fut + Send + Sync + 'static,
-        Fut: Future<Output = ()> + Send + 'static,
+        Fut: Future + Send + 'static,
+        Fut::Output: Send + 'static,
     {
         PLUGIN_BUILDER.with(|p| {
             let cron = match Cron::new(cron).with_seconds_optional().parse() {
@@ -296,7 +375,8 @@ impl PluginBuilder {
     pub fn cron_use_croner<F, Fut>(cron: Cron, handler: F)
     where
         F: Fn() -> Fut + Send + Sync + 'static,
-        Fut: Future<Output = ()> + Send + 'static,
+        Fut: Future + Send + 'static,
+        Fut::Output: Send + 'static,
     {
         PLUGIN_BUILDER.with(|p| {
             let name = p.runtime_bot.plugin_name.clone();
@@ -354,4 +434,100 @@ macro_rules! async_move {
                 $($body)*
         }
     };
+}
+
+
+#[tokio::test]
+async fn on_is_ture() {
+    let conf = crate::bot::KoviConf::new(
+        123,
+        None,
+        crate::bot::Server::new(
+            IpAddr::V4(std::net::Ipv4Addr::new(127, 0, 0, 1)),
+            8081,
+            "".to_string(),
+        ),
+        false,
+    );
+
+    let (api_tx, _): (mpsc::Sender<ApiAndOneshot>, mpsc::Receiver<ApiAndOneshot>) =
+        mpsc::channel(1);
+
+    async fn test_something() {
+        PluginBuilder::on_msg(|_| async {});
+        PluginBuilder::on_admin_msg(|_| async {});
+        PluginBuilder::on_group_msg(|_| async {});
+        PluginBuilder::on_private_msg(|_| async {});
+        PluginBuilder::on_all_notice(|_| async {});
+        PluginBuilder::on_all_request(|_| async {});
+    }
+
+    fn pin_something() -> std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send>> {
+        Box::pin(async {
+            test_something().await;
+        })
+    }
+
+
+    let mut bot = Bot::build(conf);
+    bot.mount_main("some", "0.0.1", Arc::new(pin_something));
+    let main_foo = bot.plugins.get("some").unwrap().main.clone();
+    let bot = Arc::new(RwLock::new(bot));
+
+
+    let join = tokio::spawn({
+        let p = PluginBuilder::new("some".to_string(), bot.clone(), api_tx);
+        PLUGIN_BUILDER.scope(p, (main_foo)())
+    });
+
+    join.await.unwrap();
+
+    let bot_lock = bot.write().unwrap();
+    let bot_plugin = bot_lock.plugins.get("some").unwrap();
+
+    // 检测里面是不是每个类型的闭包都是一个
+    let mut counts = std::collections::HashMap::new();
+    counts.insert(
+        "MsgFn",
+        bot_plugin
+            .listen
+            .msg
+            .iter()
+            .filter(|&msg| matches!(msg.as_ref(), ListenMsgFn::Msg(_)))
+            .count(),
+    );
+    counts.insert(
+        "PrivateMsgFn",
+        bot_plugin
+            .listen
+            .msg
+            .iter()
+            .filter(|&msg| matches!(msg.as_ref(), ListenMsgFn::PrivateMsg(_)))
+            .count(),
+    );
+    counts.insert(
+        "GroupMsgFn",
+        bot_plugin
+            .listen
+            .msg
+            .iter()
+            .filter(|&msg| matches!(msg.as_ref(), ListenMsgFn::GroupMsg(_)))
+            .count(),
+    );
+    counts.insert(
+        "AdminMsgFn",
+        bot_plugin
+            .listen
+            .msg
+            .iter()
+            .filter(|&msg| matches!(msg.as_ref(), ListenMsgFn::AdminMsg(_)))
+            .count(),
+    );
+    counts.insert("AllNoticeFn", bot_plugin.listen.notice.len());
+    counts.insert("AllRequestFn", bot_plugin.listen.request.len());
+    counts.insert("KoviEventDropFn", bot_plugin.listen.drop.len());
+
+    for (key, &count) in counts.iter() {
+        assert_eq!(count, 1, "{} should have exactly one closure", key);
+    }
 }
