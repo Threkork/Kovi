@@ -104,9 +104,9 @@ impl PluginBuilder {
         })
     }
 
-    pub fn get_kovi_bot() -> Arc<RwLock<Bot>> {
-        PLUGIN_BUILDER.with(|p| p.runtime_bot.bot.clone())
-    }
+    // pub fn get_kovi_bot() -> Arc<RwLock<Bot>> {
+    //     PLUGIN_BUILDER.with(|p| p.runtime_bot.bot.clone())
+    // }
 
     pub fn get_plugin_name() -> String {
         PLUGIN_BUILDER.with(|p| p.runtime_bot.plugin_name.to_string())

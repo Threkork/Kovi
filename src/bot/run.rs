@@ -66,10 +66,7 @@ impl Bot {
             tokio::spawn({
                 let bot = bot.clone();
                 let api_tx = api_tx.clone();
-                async move {
-                    Self::init_plugin_builder(&bot, api_tx);
-                    Self::run_mains(&bot)
-                }
+                async move { Self::run_mains(bot, api_tx) }
             });
 
             let mut drop_task = None;
@@ -97,8 +94,11 @@ impl Bot {
         });
     }
 
-    fn init_plugin_builder(bot: &Arc<RwLock<Self>>, api_tx: mpsc::Sender<ApiAndOneshot>) {
-        let mut bot_ = bot.write().unwrap();
+    // 运行所有main()
+    fn run_mains(bot: Arc<RwLock<Self>>, api_tx: mpsc::Sender<ApiAndOneshot>) {
+        let bot_ = bot.read().unwrap();
+        let main_job_map = bot_.plugins.borrow();
+
         let (main_admin, admin, host, port) = {
             (
                 bot_.information.main_admin,
@@ -107,7 +107,8 @@ impl Bot {
                 bot_.information.server.port,
             )
         };
-        for (name, plugins) in bot_.plugins.iter_mut() {
+
+        for (name, plugins) in main_job_map.iter() {
             let plugin_builder = PluginBuilder::new(
                 name.clone(),
                 bot.clone(),
@@ -117,24 +118,12 @@ impl Bot {
                 port,
                 api_tx.clone(),
             );
-
-            plugins.plugin_builder = Some(plugin_builder);
-        }
-    }
-
-    // 运行所有main()
-    fn run_mains(bot: &Arc<RwLock<Self>>) {
-        let bot_ = bot.read().unwrap();
-        let main_job_map = bot_.plugins.borrow();
-
-        for plugins in main_job_map.values() {
-            Self::run_plugin_main(plugins);
+            Self::run_plugin_main(plugins, plugin_builder);
         }
     }
 
     // 运行单个插件的main()
-    pub(crate) fn run_plugin_main(plugin: &BotPlugin) {
-        let plugin_builder = plugin.plugin_builder.as_ref().unwrap().clone();
+    pub(crate) fn run_plugin_main(plugin: &BotPlugin, plugin_builder: PluginBuilder) {
         let plugin_name = plugin_builder.runtime_bot.plugin_name.clone();
 
         let mut enabled = plugin.enabled.subscribe();

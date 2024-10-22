@@ -16,9 +16,6 @@ use std::pin::Pin;
 use std::{fs, net::IpAddr, process::exit, sync::Arc};
 use tokio::sync::mpsc::{self, Sender};
 use tokio::sync::{oneshot, watch};
-
-use crate::PluginBuilder;
-
 mod connect;
 mod handler;
 mod run;
@@ -69,7 +66,6 @@ pub struct BotPlugin {
     pub version: String,
     pub(crate) main: Arc<KoviAsyncFn>,
     pub(crate) listen: Listen,
-    pub(crate) plugin_builder: Option<PluginBuilder>,
 }
 
 /// bot信息结构体
@@ -191,7 +187,6 @@ impl Bot {
             version,
             main,
             listen: Listen::default(),
-            plugin_builder: None,
         };
         self.plugins.insert(name, bot_plugin);
     }
