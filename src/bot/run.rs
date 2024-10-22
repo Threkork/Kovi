@@ -120,7 +120,6 @@ impl Bot {
 
             plugins.plugin_builder = Some(plugin_builder);
         }
-        println!("3");
     }
 
     // 运行所有main()

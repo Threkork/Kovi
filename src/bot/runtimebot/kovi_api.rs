@@ -64,7 +64,6 @@ fn disable_plugin<T: AsRef<str>>(bot: Arc<RwLock<Bot>>, plugin_name: T) -> Resul
 
 
         let plugin_name_ = Arc::new(plugin_name.to_string());
-        println!("{}", bot_plugin.listen.drop.len());
         for listen in &bot_plugin.listen.drop {
             let listen_clone = listen.clone();
             let plugin_name_ = plugin_name_.clone();
