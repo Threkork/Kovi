@@ -1,5 +1,3 @@
-use tokio::sync::mpsc;
-
 use super::RuntimeBot;
 use crate::{
     bot::ApiAndOneshot,
@@ -11,6 +9,7 @@ use std::{
     path::PathBuf,
     sync::{Arc, RwLock},
 };
+use tokio::sync::mpsc;
 
 pub trait KoviApi {
     /// 获取插件自己的路径
