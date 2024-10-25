@@ -142,7 +142,7 @@ impl SendApi {
 #[derive(Deserialize)]
 struct OldConf {
     main_admin: i64,
-    admin: Vec<i64>,
+    admins: Vec<i64>,
     server: Server,
     debug: bool,
 }
@@ -212,12 +212,12 @@ impl Bot {
                 Ok(v) => match toml::from_str(&v) {
                     Ok(conf) => conf,
                     Err(err) => {
-                        error!("Failed to parse TOML: {}", err);
+                        println!("Failed to parse TOML: {}", err);
                         exit(1);
                     }
                 },
                 Err(err) => {
-                    error!("Failed to read TOML file: {}", err);
+                    println!("Failed to read TOML file: {}", err);
                     exit(1);
                 }
             },
@@ -225,7 +225,7 @@ impl Bot {
             KoviConfFile::None => match config_file_write_and_return() {
                 Ok(conf) => conf,
                 Err(err) => {
-                    error!("Failed to create config file: {}", err);
+                    println!("Failed to create config file: {}", err);
                     exit(1);
                 }
             },
@@ -293,21 +293,21 @@ fn old_json_conf_to_toml_conf() -> KoviConf {
     let old_conf: OldConf = match fs::read_to_string("kovi.conf.json") {
         Ok(v) => match serde_json::from_str(&v) {
             Ok(conf) => conf,
-            Err(_) => {
-                error!("Load config error, please try deleting kovi.conf.json and reconfigure.\n 加载出错，请尝试删掉kovi.conf.json，重新配置。");
+            Err(e) => {
+                println!("Load config error, please try deleting kovi.conf.json and reconfigure.\n 加载出错，请尝试删掉kovi.conf.json，重新配置。\nerror: {}",e);
                 exit(1);
             }
         },
         Err(err) => {
-            error!("Failed to read JSON file: {}", err);
-            error!("Load config error, please try deleting kovi.conf.json and reconfigure.\n 加载出错，请尝试删掉kovi.conf.json，重新配置。");
+            println!("Failed to read JSON file: {}", err);
+            println!("Load config error, please try deleting kovi.conf.json and reconfigure.\n 加载出错，请尝试删掉kovi.conf.json，重新配置。");
             exit(1);
         }
     };
 
     let new_conf = KoviConf::new(
         old_conf.main_admin,
-        Some(old_conf.admin),
+        Some(old_conf.admins),
         old_conf.server,
         old_conf.debug,
     );
@@ -316,7 +316,7 @@ fn old_json_conf_to_toml_conf() -> KoviConf {
     fs::write("kovi.conf.toml", toml_str).unwrap();
 
     if let Err(e) = fs::remove_file("kovi.conf.json") {
-        error!("Failed to remove old JSON config file: {}", e);
+        println!("Failed to remove old JSON config file: {}", e);
     }
 
     new_conf
