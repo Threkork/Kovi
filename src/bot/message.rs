@@ -181,10 +181,6 @@ impl Message {
         }
     }
 
-    pub fn push(&mut self, s: Segment) {
-        self.0.push(s);
-    }
-
 
     /// Message 解析成人类可读字符串, 会将里面的 segment 转换成 `[type]` 字符串，如： image segment 会转换成 `[image]` 字符串。不要靠此函数做判断，可能不同版本会改变内容。
     pub fn to_human_string(&self) -> String {

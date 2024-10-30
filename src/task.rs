@@ -4,7 +4,6 @@ use std::{
     borrow::BorrowMut,
     collections::HashMap,
     future::Future,
-    ops::Deref,
     sync::{Arc, LazyLock},
     time::Duration,
 };
@@ -110,20 +109,26 @@ where
 
         let about_join = join.abort_handle();
 
-        tokio::spawn({
-            let name = name.clone();
-            async move {
-                let mut task_abort_handles = TASK_MANAGER.handles.lock();
 
-                let aborts = task_abort_handles
-                    .map
-                    .entry(name.deref().to_string())
-                    .or_default();
-
-                aborts.push(about_join);
-            }
-        });
+        if TASK_MANAGER.handles.is_locked() {
+            task_manager_handler(name, about_join);
+        } else {
+            tokio::spawn({
+                let name = name.clone();
+                async move {
+                    task_manager_handler(&name, about_join);
+                }
+            });
+        }
 
         join
     })
+}
+
+pub fn task_manager_handler(name: &str, about_join: AbortHandle) {
+    let mut task_abort_handles = TASK_MANAGER.handles.lock();
+
+    let aborts = task_abort_handles.map.entry(name.to_string()).or_default();
+
+    aborts.push(about_join);
 }

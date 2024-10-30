@@ -58,7 +58,6 @@ impl Message {
     }
 
     /// 消息加上 segment
-    #[deprecated(note = "请使用 add() 代替")]
     pub fn add_segment<T>(mut self, segment: T) -> Self
     where
         Value: From<T>,
@@ -68,13 +67,6 @@ impl Message {
         if let Ok(segment) = serde_json::from_value(value) {
             self.0.push(segment);
         }
-        self
-    }
-
-    /// 消息加上 segment
-    pub fn add(mut self, segment: Segment) -> Self {
-        self.0.push(segment);
-
         self
     }
 }
@@ -122,6 +114,10 @@ impl Message {
             type_: "image".to_string(),
             data: json!({ "file": file }),
         });
+    }
+
+    pub fn push(&mut self, s: Segment) {
+        self.0.push(s);
     }
 }
 
