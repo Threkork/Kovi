@@ -109,17 +109,7 @@ where
 
         let about_join = join.abort_handle();
 
-
-        if TASK_MANAGER.handles.is_locked() {
-            task_manager_handler(name, about_join);
-        } else {
-            tokio::spawn({
-                let name = name.clone();
-                async move {
-                    task_manager_handler(&name, about_join);
-                }
-            });
-        }
+        task_manager_handler(name, about_join);
 
         join
     })
