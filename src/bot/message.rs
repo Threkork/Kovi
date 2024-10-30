@@ -1,3 +1,5 @@
+use std::ops::Add;
+
 #[cfg(feature = "cqstring")]
 use regex::Regex;
 use serde::{Deserialize, Serialize};
@@ -110,6 +112,25 @@ impl From<CQMessage> for Message {
 impl PartialEq for Message {
     fn eq(&self, other: &Self) -> bool {
         self.0 == other.0
+    }
+}
+
+impl Iterator for Message {
+    type Item = Segment;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.0.pop()
+    }
+}
+
+impl Add for Message {
+    type Output = Message;
+
+    fn add(mut self, rhs: Self) -> Self::Output {
+        for seg in rhs {
+            self.push(seg);
+        }
+        self
     }
 }
 

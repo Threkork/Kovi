@@ -110,15 +110,20 @@ where
 
         let about_join = join.abort_handle();
 
-        let mut task_abort_handles = TASK_MANAGER.handles.lock();
+        tokio::spawn({
+            let name = name.clone();
+            async move {
+                let mut task_abort_handles = TASK_MANAGER.handles.lock();
 
-        let aborts = task_abort_handles
-            .map
-            .entry(name.deref().to_string())
-            .or_default();
+                let aborts = task_abort_handles
+                    .map
+                    .entry(name.deref().to_string())
+                    .or_default();
 
-        aborts.push(about_join);
-        drop(task_abort_handles);
+                aborts.push(about_join);
+            }
+        });
+
         join
     })
 }
