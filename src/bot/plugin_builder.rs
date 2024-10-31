@@ -21,6 +21,8 @@ pub type PinFut = Pin<Box<dyn Future<Output = ()> + Send>>;
 
 pub type AllMsgFn = Arc<dyn Fn(Arc<AllMsgEvent>) -> PinFut + Send + Sync>;
 
+pub type AsyncMsgFn = Arc<dyn Fn(Arc<AllMsgEvent>) -> PinFut + Send + Sync>;
+
 pub type AllNoticeFn = Arc<dyn Fn(Arc<AllNoticeEvent>) -> PinFut + Send + Sync>;
 
 pub type AllRequestFn = Arc<dyn Fn(Arc<AllRequestEvent>) -> PinFut + Send + Sync>;
@@ -154,7 +156,7 @@ impl PluginBuilder {
     /// 注册一个处理程序，用于处理接收到的消息事件（`AllMsgEvent`）。
     pub fn on_admin_msg<F, Fut>(handler: F)
     where
-        F: Fn(Arc<AllMsgEvent>) -> Fut + Send + Sync + 'static + Clone,
+        F: Fn(Arc<AllMsgEvent>) -> Fut + Send + Sync + 'static,
         Fut: Future + Send + 'static,
         Fut::Output: Send + 'static,
     {
@@ -364,7 +366,7 @@ impl PluginBuilder {
             plugin.enabled.subscribe()
         };
         tokio::spawn(PLUGIN_NAME.scope(name.clone(), async move {
-            
+
             tokio::select! {
                 _ = async {
                         loop {

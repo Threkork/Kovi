@@ -1,3 +1,5 @@
+#![feature(return_type_notation, async_closure)]
+
 //! # Kovi
 //!
 //! A OneBot V11 bot framework developed using Rust.
