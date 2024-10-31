@@ -154,7 +154,7 @@ impl PluginBuilder {
     /// 注册一个处理程序，用于处理接收到的消息事件（`AllMsgEvent`）。
     pub fn on_admin_msg<F, Fut>(handler: F)
     where
-        F: Fn(Arc<AllMsgEvent>) -> Fut + Send + Sync + 'static + Clone,
+        F: Fn(Arc<AllMsgEvent>) -> Fut + Send + Sync + 'static ,
         Fut: Future + Send + 'static,
         Fut::Output: Send + 'static,
     {
