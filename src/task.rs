@@ -115,7 +115,7 @@ where
     })
 }
 
-pub fn task_manager_handler(name: &str, about_join: AbortHandle) {
+pub(crate) fn task_manager_handler(name: &str, about_join: AbortHandle) {
     let mut task_abort_handles = TASK_MANAGER.handles.lock();
 
     let aborts = task_abort_handles.map.entry(name.to_string()).or_default();
