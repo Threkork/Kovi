@@ -2,7 +2,7 @@
 pub fn set_logger() {
     use anstyle::{Color, Style};
     use chrono::Local;
-    use log::{warn, Level};
+    use log::Level;
     use std::io::Write;
 
     let init = env_logger::Builder::from_default_env()
@@ -46,7 +46,7 @@ pub fn set_logger() {
         .try_init();
 
     if let Err(e) = init {
-        warn!(
+        println!(
             "Kovi init env_logger failed: {}. Very likely you've already started a logger",
             e
         );

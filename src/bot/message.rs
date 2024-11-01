@@ -1,3 +1,5 @@
+use std::ops::Add;
+
 #[cfg(feature = "cqstring")]
 use regex::Regex;
 use serde::{Deserialize, Serialize};
@@ -113,6 +115,25 @@ impl PartialEq for Message {
     }
 }
 
+impl Iterator for Message {
+    type Item = Segment;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.0.pop()
+    }
+}
+
+impl Add for Message {
+    type Output = Message;
+
+    fn add(mut self, rhs: Self) -> Self::Output {
+        for seg in rhs {
+            self.push(seg);
+        }
+        self
+    }
+}
+
 impl<'a> IntoIterator for &'a Message {
     type Item = &'a Segment;
     type IntoIter = std::slice::Iter<'a, Segment>;
@@ -158,10 +179,6 @@ impl Message {
             Ok(segments) => Ok(Message(segments)),
             Err(err) => Err(err),
         }
-    }
-
-    pub fn push(&mut self, s: Segment) {
-        self.0.push(s);
     }
 
 

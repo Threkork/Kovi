@@ -115,6 +115,10 @@ impl Message {
             data: json!({ "file": file }),
         });
     }
+
+    pub fn push(&mut self, s: Segment) {
+        self.0.push(s);
+    }
 }
 
 #[cfg(feature = "cqstring")]

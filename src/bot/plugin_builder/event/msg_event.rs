@@ -229,11 +229,7 @@ impl AllMsgEvent {
         let human_msg = msg.to_human_string();
         info!("[reply] [to {message_type}{group_id}{nickname} {id}]: {human_msg}");
 
-        let api_tx = self.api_tx.clone();
-
-        tokio::spawn(async move {
-            api_tx.send((send_msg, None)).await.unwrap();
-        });
+        send_api_request_with_forget(&self.api_tx, send_msg)
     }
 
     #[cfg(feature = "cqstring")]
@@ -352,5 +348,9 @@ impl AllMsgEvent {
 
     pub fn is_group(&self) -> bool {
         self.group_id.is_some()
+    }
+
+    pub fn is_private(&self) -> bool {
+        self.group_id.is_none()
     }
 }

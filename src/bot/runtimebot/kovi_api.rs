@@ -17,8 +17,6 @@ pub trait KoviApi {
 
     /// 卸载传入的插件
     ///
-    /// 并且因为要运行插件可能存在的 drop 闭包，所以需要异步。
-    ///
     /// # error
     ///
     /// 如果寻找不到插件，会报错 BotError::PluginNotFound
@@ -79,7 +77,6 @@ impl KoviApi for RuntimeBot {
 
 
 fn disable_plugin<T: AsRef<str>>(bot: Arc<RwLock<Bot>>, plugin_name: T) -> Result<(), BotError> {
-    let mut join_handles = Vec::new();
     {
         let mut bot = bot.write().unwrap();
 
@@ -95,12 +92,11 @@ fn disable_plugin<T: AsRef<str>>(bot: Arc<RwLock<Bot>>, plugin_name: T) -> Resul
         for listen in &bot_plugin.listen.drop {
             let listen_clone = listen.clone();
             let plugin_name_ = plugin_name_.clone();
-            let handle = tokio::spawn(async move {
+            tokio::spawn(async move {
                 PLUGIN_NAME
                     .scope(plugin_name_, Bot::handler_drop(listen_clone))
                     .await;
             });
-            join_handles.push(handle);
         }
 
         TASK_MANAGER.disable_plugin(plugin_name);
