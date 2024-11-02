@@ -143,6 +143,20 @@ impl<'a> IntoIterator for &'a Message {
     }
 }
 
+impl std::ops::Index<usize> for Message {
+    type Output = Segment;
+
+    fn index(&self, index: usize) -> &Self::Output {
+        &self.0[index]
+    }
+}
+
+impl std::ops::IndexMut<usize> for Message {
+    fn index_mut(&mut self, index: usize) -> &mut Self::Output {
+        &mut self.0[index]
+    }
+}
+
 impl Message {
     pub fn iter(&self) -> std::slice::Iter<Segment> {
         self.0.iter()
@@ -201,6 +215,14 @@ impl Message {
             }
         }
         result
+    }
+
+    pub fn get_from_index(&self, index: usize) -> Option<&Segment> {
+        self.0.get(index)
+    }
+
+    pub fn get_mut_from_index(&mut self, index: usize) -> Option<&mut Segment> {
+        self.0.get_mut(index)
     }
 }
 
