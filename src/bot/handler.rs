@@ -1,5 +1,5 @@
 use crate::{bot::*, task::PLUGIN_NAME};
-use log::{debug, error, info};
+use log::{debug, error, info, warn};
 #[cfg(feature = "message_sent")]
 use plugin_builder::AllMsgFn;
 use plugin_builder::{
@@ -144,7 +144,8 @@ impl Bot {
             }
 
             _ => {
-                panic!()
+                warn!("Unknown event: {msg}");
+                return;
             }
         };
 
