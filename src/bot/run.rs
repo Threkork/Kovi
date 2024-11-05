@@ -21,10 +21,11 @@ impl Bot {
     /// 运行bot
     /// **注意此函数会阻塞并且接管程序退出, 程序不会运行后续所有代码**
     pub fn run(self) {
-        let (host, port, access_token) = (
-            self.information.server.host,
+        let (host, port, access_token, secure) = (
+            self.information.server.host.clone(),
             self.information.server.port,
             self.information.server.access_token.clone(),
+            self.information.server.secure,
         );
 
         let bot = Arc::new(RwLock::new(self));
@@ -46,7 +47,7 @@ impl Bot {
             tokio::spawn({
                 let event_tx = event_tx.clone();
                 let access_token = access_token.clone();
-                Self::ws_connect(host, port, access_token, event_tx)
+                Self::ws_connect(host.clone(), port, access_token, secure, event_tx)
             });
 
             // drop检测
@@ -58,7 +59,7 @@ impl Bot {
             // api连接
             tokio::spawn({
                 let access_token = access_token.clone();
-                Self::ws_send_api(host, port, access_token, api_rx, event_tx)
+                Self::ws_send_api(host, port, access_token, secure, api_rx, event_tx)
             });
 
 
@@ -103,7 +104,7 @@ impl Bot {
             (
                 bot_.information.main_admin,
                 bot_.information.admin.clone(),
-                bot_.information.server.host,
+                bot_.information.server.host.clone(),
                 bot_.information.server.port,
             )
         };
@@ -114,7 +115,7 @@ impl Bot {
                 bot.clone(),
                 main_admin,
                 admin.clone(),
-                host,
+                host.clone(),
                 port,
                 api_tx.clone(),
             );

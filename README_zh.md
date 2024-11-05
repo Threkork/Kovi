@@ -10,7 +10,7 @@
 
 使用 Rust 开发的 OneBot V11 机器人插件框架。
 
-你可以在 [Kovi使用手册](https://threkork.github.io/kovi-doc/) 看到更多文档
+你可以在 [Kovi Doc](https://threkork.github.io/kovi-doc/) 看到更多文档
 
 项目处于 beta 状态。
 
