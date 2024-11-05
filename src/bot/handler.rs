@@ -1,5 +1,7 @@
 use crate::{bot::*, task::PLUGIN_NAME};
 use log::{debug, error, info};
+#[cfg(feature = "message_sent")]
+use plugin_builder::AllMsgFn;
 use plugin_builder::{
     event::{AllMsgEvent, AllNoticeEvent, AllRequestEvent},
     AllNoticeFn, AllRequestFn, ListenMsgFn, NoArgsFn,
@@ -82,6 +84,8 @@ impl Bot {
 
         enum OneBotEvent {
             Msg(AllMsgEvent),
+            #[cfg(feature = "message_sent")]
+            MsgSent(AllMsgEvent),
             AllNotice(AllNoticeEvent),
             AllRequest(AllRequestEvent),
         }
@@ -106,6 +110,17 @@ impl Bot {
                 };
                 info!("[{message_type}{group_id}{nickname} {id}]: {text}");
                 OneBotEvent::Msg(e)
+            }
+            #[cfg(feature = "message_sent")]
+            "message_sent" => {
+                let e = match AllMsgEvent::new(api_tx, &msg) {
+                    Ok(event) => event,
+                    Err(e) => {
+                        error!("{e}");
+                        return;
+                    }
+                };
+                OneBotEvent::MsgSent(e)
             }
             "notice" => {
                 let e = match AllNoticeEvent::new(&msg) {
@@ -150,6 +165,34 @@ impl Bot {
                         tokio::spawn(async move {
                             tokio::select! {
                                 _ = PLUGIN_NAME.scope(name, Self::handle_msg(listen, event_clone, bot_clone)) => {}
+                                _ = async {
+                                        loop {
+                                            enabled.changed().await.unwrap();
+                                            if !*enabled.borrow_and_update() {
+                                                break;
+                                            }
+                                        }
+                                } => {}
+                            }
+                        });
+                    }
+                }
+            }
+            #[cfg(feature = "message_sent")]
+            OneBotEvent::MsgSent(e) => {
+                let e = Arc::new(e);
+                for (name, plugin) in bot_read.plugins.iter() {
+                    let name_ = Arc::new(name.clone());
+
+                    for listen in &plugin.listen.msg_sent {
+                        let name = name_.clone();
+                        let event_clone = Arc::clone(&e);
+                        let listen = listen.clone();
+                        let mut enabled = plugin.enabled.subscribe();
+
+                        tokio::spawn(async move {
+                            tokio::select! {
+                                _ = PLUGIN_NAME.scope(name, Self::handler_msg_sent(listen,event_clone)) => {}
                                 _ = async {
                                         loop {
                                             enabled.changed().await.unwrap();
@@ -247,6 +290,11 @@ impl Bot {
                 }
             }
         }
+    }
+
+    #[cfg(feature = "message_sent")]
+    async fn handler_msg_sent(listen: AllMsgFn, e: Arc<AllMsgEvent>) {
+        listen(e).await;
     }
 
     async fn handler_notice(listen: AllNoticeFn, e: Arc<AllNoticeEvent>) {

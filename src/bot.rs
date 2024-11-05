@@ -1,6 +1,6 @@
 use ahash::{HashMapExt as _, RandomState};
 use dialoguer::theme::ColorfulTheme;
-use dialoguer::Input;
+use dialoguer::{Input, Select};
 use handler::InternalEvent;
 use log::{debug, error};
 use plugin_builder::Listen;
@@ -8,10 +8,10 @@ use serde::{Deserialize, Serialize};
 use serde_json::{self, Value};
 use std::collections::HashMap;
 use std::env;
-use std::fmt::Debug;
+use std::fmt::{Debug, Display};
 use std::future::Future;
 use std::io::Write as _;
-use std::net::Ipv4Addr;
+use std::net::{Ipv4Addr, Ipv6Addr};
 use std::pin::Pin;
 use std::{fs, net::IpAddr, process::exit, sync::Arc};
 use tokio::sync::mpsc::{self, Sender};
@@ -51,7 +51,7 @@ impl KoviConf {
     }
 }
 
-type KoviAsyncFn = dyn Fn() -> Pin<Box<dyn Future<Output = ()> + Send>> + Send + Sync + 'static;
+type KoviAsyncFn = dyn Fn() -> Pin<Box<dyn Future<Output = ()> + Send>> + Send + Sync;
 
 /// bot结构体
 #[derive(Clone)]
@@ -78,17 +78,36 @@ pub struct BotInformation {
 /// server信息
 #[derive(Deserialize, Serialize, Debug, Clone)]
 pub struct Server {
-    pub host: IpAddr,
+    pub host: Host,
     pub port: u16,
     pub access_token: String,
+    pub secure: bool,
 }
 
+#[derive(Deserialize, Serialize, Debug, Clone)]
+#[serde(untagged)]
+pub enum Host {
+    IpAddr(IpAddr),
+    Domain(String),
+}
+
+impl Display for Host {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Host::IpAddr(ip) => write!(f, "{}", ip),
+            Host::Domain(domain) => write!(f, "{}", domain),
+        }
+    }
+}
+
+
 impl Server {
-    pub fn new(host: IpAddr, port: u16, access_token: String) -> Self {
+    pub fn new(host: Host, port: u16, access_token: String, secure: bool) -> Self {
         Server {
             host,
             port,
             access_token,
+            secure,
         }
     }
 }
@@ -139,14 +158,6 @@ impl SendApi {
     }
 }
 
-#[derive(Deserialize)]
-struct OldConf {
-    main_admin: i64,
-    admins: Vec<i64>,
-    server: Server,
-    debug: bool,
-}
-
 impl Bot {
     /// 构建一个bot实例
     /// # Examples
@@ -191,44 +202,42 @@ impl Bot {
         self.plugins.insert(name, bot_plugin);
     }
 
+
     pub fn load_local_conf() -> KoviConf {
-        enum KoviConfFile {
-            Json,
-            Toml,
-            None,
-        }
-
         //检测文件是kovi.conf.json还是kovi.conf.toml
-        let kovi_conf_file = if fs::metadata("kovi.conf.toml").is_ok() {
-            KoviConfFile::Toml
-        } else if fs::metadata("kovi.conf.json").is_ok() {
-            KoviConfFile::Json
-        } else {
-            KoviConfFile::None
-        };
+        let kovi_conf_file_exist = fs::metadata("kovi.conf.toml").is_ok();
 
-        let conf_json: KoviConf = match kovi_conf_file {
-            KoviConfFile::Toml => match fs::read_to_string("kovi.conf.toml") {
+        let conf_json: KoviConf = if kovi_conf_file_exist {
+            match fs::read_to_string("kovi.conf.toml") {
                 Ok(v) => match toml::from_str(&v) {
                     Ok(conf) => conf,
                     Err(err) => {
-                        println!("Failed to parse TOML: {}", err);
-                        exit(1);
+                        eprintln!(
+                            "Failed to parse TOML:\n{}\nPlease reload the config file",
+                            err
+                        );
+                        match config_file_write_and_return() {
+                            Ok(conf) => conf,
+                            Err(err) => {
+                                eprintln!("Failed to create config file: {}", err);
+                                exit(1);
+                            }
+                        }
                     }
                 },
                 Err(err) => {
-                    println!("Failed to read TOML file: {}", err);
+                    eprintln!("Failed to read TOML file: {}", err);
                     exit(1);
                 }
-            },
-            KoviConfFile::Json => old_json_conf_to_toml_conf(),
-            KoviConfFile::None => match config_file_write_and_return() {
+            }
+        } else {
+            match config_file_write_and_return() {
                 Ok(conf) => conf,
                 Err(err) => {
-                    println!("Failed to create config file: {}", err);
+                    eprintln!("Failed to create config file: {}", err);
                     exit(1);
                 }
-            },
+            }
         };
 
         unsafe {
@@ -247,11 +256,55 @@ impl Bot {
 
 /// 将配置文件写入磁盘
 fn config_file_write_and_return() -> Result<KoviConf, std::io::Error> {
-    let host = Input::with_theme(&ColorfulTheme::default())
-        .with_prompt("What is the IP of the OneBot server?")
-        .default(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)))
-        .interact_text()
-        .unwrap();
+    enum HostType {
+        IPv4,
+        IPv6,
+        Domain,
+    }
+
+    let host_type: HostType = {
+        let items = vec!["IPv4", "IPv6", "Domain"];
+        let select = Select::with_theme(&ColorfulTheme::default())
+            .with_prompt("What is the type of the host of the OneBot server?")
+            .items(&items)
+            .default(0)
+            .interact()
+            .unwrap();
+
+        match select {
+            0 => HostType::IPv4,
+            1 => HostType::IPv6,
+            2 => HostType::Domain,
+            _ => panic!(), //不可能的事情
+        }
+    };
+
+    let host = match host_type {
+        HostType::IPv4 => {
+            let ip = Input::with_theme(&ColorfulTheme::default())
+                .with_prompt("What is the IP of the OneBot server?")
+                .default(Ipv4Addr::new(127, 0, 0, 1))
+                .interact_text()
+                .unwrap();
+            Host::IpAddr(IpAddr::V4(ip))
+        }
+        HostType::IPv6 => {
+            let ip = Input::with_theme(&ColorfulTheme::default())
+                .with_prompt("What is the IP of the OneBot server?")
+                .default(Ipv6Addr::new(0, 0, 0, 0, 0, 0, 0, 1))
+                .interact_text()
+                .unwrap();
+            Host::IpAddr(IpAddr::V6(ip))
+        }
+        HostType::Domain => {
+            let domain = Input::with_theme(&ColorfulTheme::default())
+                .with_prompt("What is the domain of the OneBot server?")
+                .default("localhost".to_string())
+                .interact_text()
+                .unwrap();
+            Host::Domain(domain)
+        }
+    };
 
     let port: u16 = Input::with_theme(&ColorfulTheme::default())
         .with_prompt("What is the port of the OneBot server?")
@@ -272,54 +325,78 @@ fn config_file_write_and_return() -> Result<KoviConf, std::io::Error> {
         .interact_text()
         .unwrap();
 
-    let config = KoviConf::new(
-        main_admin,
-        None,
-        Server::new(host, port, access_token),
-        false,
-    );
+    // 是否查看更多可选选项
+    let more: bool = {
+        let items = vec!["No", "Yes"];
+        let select = Select::with_theme(&ColorfulTheme::default())
+            .with_prompt("Do you want to view more optional options?")
+            .items(&items)
+            .default(0)
+            .interact()
+            .unwrap();
 
-    let file = fs::File::create("kovi.conf.toml")?;
-
-    //写入文件
-    let mut writer = std::io::BufWriter::new(file);
-    let config_str = toml::to_string_pretty(&config).unwrap();
-    writer.write_all(config_str.as_bytes())?;
-
-    Ok(config)
-}
-
-fn old_json_conf_to_toml_conf() -> KoviConf {
-    let old_conf: OldConf = match fs::read_to_string("kovi.conf.json") {
-        Ok(v) => match serde_json::from_str(&v) {
-            Ok(conf) => conf,
-            Err(e) => {
-                println!("Load config error, please try deleting kovi.conf.json and reconfigure.\n 加载出错，请尝试删掉kovi.conf.json，重新配置。\nerror: {}",e);
-                exit(1);
-            }
-        },
-        Err(err) => {
-            println!("Failed to read JSON file: {}", err);
-            println!("Load config error, please try deleting kovi.conf.json and reconfigure.\n 加载出错，请尝试删掉kovi.conf.json，重新配置。");
-            exit(1);
+        match select {
+            0 => false,
+            1 => true,
+            _ => panic!(), //不可能的事情
         }
     };
 
-    let new_conf = KoviConf::new(
-        old_conf.main_admin,
-        Some(old_conf.admins),
-        old_conf.server,
-        old_conf.debug,
-    );
+    let mut secure = false;
+    if more {
+        // wss https? tls?
+        secure = {
+            let items = vec!["No", "Yes"];
+            let select = Select::with_theme(&ColorfulTheme::default())
+                // .with_prompt("Enable secure connection? (HTTPS/WSS)")
+                .with_prompt("Enable secure connection? (WSS)")
+                .items(&items)
+                .default(0)
+                .interact()
+                .unwrap();
 
-    let toml_str = toml::to_string_pretty(&new_conf).unwrap();
-    fs::write("kovi.conf.toml", toml_str).unwrap();
-
-    if let Err(e) = fs::remove_file("kovi.conf.json") {
-        println!("Failed to remove old JSON config file: {}", e);
+            match select {
+                0 => false,
+                1 => true,
+                _ => panic!(), //不可能的事情
+            }
+        };
     }
 
-    new_conf
+    let config = KoviConf::new(
+        main_admin,
+        None,
+        Server::new(host, port, access_token, secure),
+        false,
+    );
+
+    let mut doc = toml_edit::DocumentMut::new();
+    doc["config"] = toml_edit::table();
+    doc["config"]["main_admin"] = toml_edit::value(config.config.main_admin);
+    doc["config"]["admins"] = toml_edit::Item::Value(toml_edit::Value::Array(
+        config
+            .config
+            .admins
+            .iter()
+            .map(|&x| toml_edit::Value::from(x))
+            .collect(),
+    ));
+    doc["config"]["debug"] = toml_edit::value(config.config.debug);
+
+    doc["server"] = toml_edit::table();
+    doc["server"]["host"] = match &config.server.host {
+        Host::IpAddr(ip) => toml_edit::value(ip.to_string()),
+        Host::Domain(domain) => toml_edit::value(domain.clone()),
+    };
+    doc["server"]["port"] = toml_edit::value(config.server.port as i64);
+    doc["server"]["access_token"] = toml_edit::value(config.server.access_token.clone());
+    doc["server"]["secure"] = toml_edit::value(config.server.secure);
+
+    let file = fs::File::create("kovi.conf.toml")?;
+    let mut writer = std::io::BufWriter::new(file);
+    writer.write_all(doc.to_string().as_bytes())?;
+
+    Ok(config)
 }
 
 
@@ -362,9 +439,10 @@ fn build_bot() {
         123456,
         None,
         Server {
-            host: "127.0.0.1".parse().unwrap(),
+            host: Host::IpAddr("127.0.0.1".parse().unwrap()),
             port: 8081,
             access_token: "".to_string(),
+            secure: false,
         },
         false,
     );

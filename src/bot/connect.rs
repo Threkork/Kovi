@@ -1,4 +1,4 @@
-use super::{exit_and_eprintln, handler::InternalEvent, ApiAndOneshot, ApiReturn, Bot};
+use super::{exit_and_eprintln, handler::InternalEvent, ApiAndOneshot, ApiReturn, Bot, Host};
 use ahash::{HashMapExt as _, RandomState};
 use futures_util::{SinkExt, StreamExt};
 use log::{debug, warn};
@@ -13,16 +13,28 @@ type ApiTxMap = Arc<
 
 impl Bot {
     pub(crate) async fn ws_connect(
-        host: IpAddr,
+        host: Host,
         port: u16,
         access_token: String,
+        secure: bool,
         event_tx: mpsc::Sender<InternalEvent>,
     ) {
-        //增加Authorization头
-        let mut request = format!("ws://{}:{}/event", host, port)
-            .into_client_request()
-            .unwrap();
+        let protocol = if secure { "wss" } else { "ws" };
+        let mut request = match host {
+            Host::IpAddr(ip) => match ip {
+                IpAddr::V4(ip) => format!("{}://{}:{}/event", protocol, ip, port)
+                    .into_client_request()
+                    .unwrap(),
+                IpAddr::V6(ip) => format!("{}://[{}]:{}/event", protocol, ip, port)
+                    .into_client_request()
+                    .unwrap(),
+            },
+            Host::Domain(domain) => format!("{}://{}:{}/event", protocol, domain, port)
+                .into_client_request()
+                .unwrap(),
+        };
 
+        //增加Authorization头
         if !access_token.is_empty() {
             request.headers_mut().insert(
                 "Authorization",
@@ -64,17 +76,29 @@ impl Bot {
     }
 
     pub(crate) async fn ws_send_api(
-        host: IpAddr,
+        host: Host,
         port: u16,
         access_token: String,
+        secure: bool,
         mut api_rx: mpsc::Receiver<ApiAndOneshot>,
         event_tx: mpsc::Sender<InternalEvent>,
     ) {
-        //增加Authorization头
-        let mut request = format!("ws://{}:{}/api", host, port)
-            .into_client_request()
-            .unwrap();
+        let protocol = if secure { "wss" } else { "ws" };
+        let mut request = match host {
+            Host::IpAddr(ip) => match ip {
+                IpAddr::V4(ip) => format!("{}://{}:{}/api", protocol, ip, port)
+                    .into_client_request()
+                    .unwrap(),
+                IpAddr::V6(ip) => format!("{}://[{}]:{}/api", protocol, ip, port)
+                    .into_client_request()
+                    .unwrap(),
+            },
+            Host::Domain(domain) => format!("{}://{}:{}/api", protocol, domain, port)
+                .into_client_request()
+                .unwrap(),
+        };
 
+        //增加Authorization头
         if !access_token.is_empty() {
             request.headers_mut().insert(
                 "Authorization",

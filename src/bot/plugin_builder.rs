@@ -1,14 +1,13 @@
 use crate::task::PLUGIN_NAME;
 
 use super::run::PLUGIN_BUILDER;
-use super::ApiAndOneshot;
 use super::{runtimebot::RuntimeBot, Bot};
+use super::{ApiAndOneshot, Host};
 use croner::errors::CronError;
 use croner::Cron;
 use event::{AllMsgEvent, AllNoticeEvent, AllRequestEvent};
 use log::error;
 use std::future::Future;
-use std::net::IpAddr;
 use std::path::PathBuf;
 use std::pin::Pin;
 use std::sync::{Arc, RwLock};
@@ -30,6 +29,8 @@ pub type NoArgsFn = Arc<dyn Fn() -> PinFut + Send + Sync>;
 #[derive(Clone, Default)]
 pub(crate) struct Listen {
     pub(crate) msg: Vec<Arc<ListenMsgFn>>,
+    #[cfg(feature = "message_sent")]
+    pub(crate) msg_sent: Vec<AllMsgFn>,
     pub(crate) notice: Vec<AllNoticeFn>,
     pub(crate) request: Vec<AllRequestFn>,
     pub(crate) drop: Vec<NoArgsFn>,
@@ -68,7 +69,7 @@ impl PluginBuilder {
         bot: Arc<RwLock<Bot>>,
         main_admin: i64,
         admin: Vec<i64>,
-        host: IpAddr,
+        host: Host,
         port: u16,
         api_tx: mpsc::Sender<ApiAndOneshot>,
     ) -> Self {
@@ -104,16 +105,12 @@ impl PluginBuilder {
         })
     }
 
-    // pub fn get_kovi_bot() -> Arc<RwLock<Bot>> {
-    //     PLUGIN_BUILDER.with(|p| p.runtime_bot.bot.clone())
-    // }
-
     pub fn get_plugin_name() -> String {
         PLUGIN_BUILDER.with(|p| p.runtime_bot.plugin_name.to_string())
     }
 
-    pub fn get_plugin_host() -> (IpAddr, u16) {
-        PLUGIN_BUILDER.with(|p| (p.runtime_bot.host, p.runtime_bot.port))
+    pub fn get_plugin_host() -> (Host, u16) {
+        PLUGIN_BUILDER.with(|p| (p.runtime_bot.host.clone(), p.runtime_bot.port))
     }
 }
 
@@ -124,27 +121,27 @@ impl PluginBuilder {
     pub fn on_msg<F, Fut>(handler: F)
     where
         F: Fn(Arc<AllMsgEvent>) -> Fut + Send + Sync + 'static,
-        Fut: Future + Send + 'static,
-        Fut::Output: Send + 'static,
+        Fut: Future + Send,
+        Fut::Output: Send,
     {
         PLUGIN_BUILDER.with(|p| {
             let mut bot = p.runtime_bot.bot.write().unwrap();
             let bot_plugin = bot.plugins.get_mut(&p.runtime_bot.plugin_name).unwrap();
 
-            bot_plugin
-                .listen
-                .msg
-                .push(Arc::new(ListenMsgFn::Msg(Arc::new({
-                    let handler = Arc::new(handler);
-                    move |event| {
-                        Box::pin({
-                            let handler = handler.clone();
-                            async move {
-                                handler(event).await;
-                            }
-                        })
-                    }
-                }))));
+            let handler = Arc::new(handler);
+
+            let listen_fn = ListenMsgFn::Msg(Arc::new({
+                move |event| {
+                    Box::pin({
+                        let handler = handler.clone();
+                        async move {
+                            handler(event).await;
+                        }
+                    })
+                }
+            }));
+
+            bot_plugin.listen.msg.push(Arc::new(listen_fn));
         })
     }
 
@@ -154,9 +151,9 @@ impl PluginBuilder {
     /// 注册一个处理程序，用于处理接收到的消息事件（`AllMsgEvent`）。
     pub fn on_admin_msg<F, Fut>(handler: F)
     where
-        F: Fn(Arc<AllMsgEvent>) -> Fut + Send + Sync + 'static ,
-        Fut: Future + Send + 'static,
-        Fut::Output: Send + 'static,
+        F: Fn(Arc<AllMsgEvent>) -> Fut + Send + Sync + 'static,
+        Fut: Future + Send,
+        Fut::Output: Send,
     {
         PLUGIN_BUILDER.with(|p| {
             let mut bot = p.runtime_bot.bot.write().unwrap();
@@ -185,8 +182,8 @@ impl PluginBuilder {
     pub fn on_private_msg<F, Fut>(handler: F)
     where
         F: Fn(Arc<AllMsgEvent>) -> Fut + Send + Sync + 'static,
-        Fut: Future + Send + 'static,
-        Fut::Output: Send + 'static,
+        Fut: Future + Send,
+        Fut::Output: Send,
     {
         PLUGIN_BUILDER.with(|p| {
             let mut bot = p.runtime_bot.bot.write().unwrap();
@@ -212,8 +209,8 @@ impl PluginBuilder {
     pub fn on_group_msg<F, Fut>(handler: F)
     where
         F: Fn(Arc<AllMsgEvent>) -> Fut + Send + Sync + 'static,
-        Fut: Future + Send + 'static,
-        Fut::Output: Send + 'static,
+        Fut: Future + Send,
+        Fut::Output: Send,
     {
         PLUGIN_BUILDER.with(|p| {
             let mut bot = p.runtime_bot.bot.write().unwrap();
@@ -236,6 +233,32 @@ impl PluginBuilder {
         })
     }
 
+    #[cfg(feature = "message_sent")]
+    /// 注册 message_sent 消息处理函数。
+    pub fn on_msg_send<F, Fut>(handler: F)
+    where
+        F: Fn(Arc<AllMsgEvent>) -> Fut + Send + Sync + 'static,
+        Fut: Future + Send,
+        Fut::Output: Send,
+    {
+        PLUGIN_BUILDER.with(|p| {
+            let mut bot = p.runtime_bot.bot.write().unwrap();
+            let bot_plugin = bot.plugins.get_mut(&p.runtime_bot.plugin_name).unwrap();
+
+            bot_plugin.listen.msg_sent.push(Arc::new({
+                let handler = Arc::new(handler);
+                move |event| {
+                    Box::pin({
+                        let handler = handler.clone();
+                        async move {
+                            handler(event).await;
+                        }
+                    })
+                }
+            }));
+        })
+    }
+
 
     /// 注册消息处理函数。
     ///
@@ -243,8 +266,8 @@ impl PluginBuilder {
     pub fn on_all_notice<F, Fut>(handler: F)
     where
         F: Fn(Arc<AllNoticeEvent>) -> Fut + Send + Sync + 'static,
-        Fut: Future + Send + 'static,
-        Fut::Output: Send + 'static,
+        Fut: Future + Send,
+        Fut::Output: Send,
     {
         PLUGIN_BUILDER.with(|p| {
             let mut bot = p.runtime_bot.bot.write().unwrap();
@@ -270,8 +293,8 @@ impl PluginBuilder {
     pub fn on_all_request<F, Fut>(handler: F)
     where
         F: Fn(Arc<AllRequestEvent>) -> Fut + Send + Sync + 'static,
-        Fut: Future + Send + 'static,
-        Fut::Output: Send + 'static,
+        Fut: Future + Send,
+        Fut::Output: Send,
     {
         PLUGIN_BUILDER.with(|p| {
             let mut bot = p.runtime_bot.bot.write().unwrap();
@@ -297,8 +320,8 @@ impl PluginBuilder {
     pub fn drop<F, Fut>(handler: F)
     where
         F: Fn() -> Fut + Send + Sync + 'static,
-        Fut: Future + Send + 'static,
-        Fut::Output: Send + 'static,
+        Fut: Future + Send,
+        Fut::Output: Send,
     {
         PLUGIN_BUILDER.with(|p| {
             let mut bot = p.runtime_bot.bot.write().unwrap();
@@ -324,8 +347,8 @@ impl PluginBuilder {
     pub fn cron<F, Fut>(cron: &str, handler: F) -> Result<(), CronError>
     where
         F: Fn() -> Fut + Send + Sync + 'static,
-        Fut: Future + Send + 'static,
-        Fut::Output: Send + 'static,
+        Fut: Future + Send,
+        Fut::Output: Send,
     {
         PLUGIN_BUILDER.with(|p| {
             let cron = match Cron::new(cron).with_seconds_optional().parse() {
@@ -343,8 +366,8 @@ impl PluginBuilder {
     pub fn cron_use_croner<F, Fut>(cron: Cron, handler: F)
     where
         F: Fn() -> Fut + Send + Sync + 'static,
-        Fut: Future + Send + 'static,
-        Fut::Output: Send + 'static,
+        Fut: Future + Send,
+        Fut::Output: Send,
     {
         PLUGIN_BUILDER.with(|p| {
             Self::run_cron_task(p, cron, handler);
@@ -354,8 +377,8 @@ impl PluginBuilder {
     fn run_cron_task<F, Fut>(p: &PluginBuilder, cron: Cron, handler: F)
     where
         F: Fn() -> Fut + Send + Sync + 'static,
-        Fut: Future + Send + 'static,
-        Fut::Output: Send + 'static,
+        Fut: Future + Send,
+        Fut::Output: Send,
     {
         let name = Arc::new(p.runtime_bot.plugin_name.clone());
         let mut enabled = {
@@ -364,7 +387,7 @@ impl PluginBuilder {
             plugin.enabled.subscribe()
         };
         tokio::spawn(PLUGIN_NAME.scope(name.clone(), async move {
-            
+
             tokio::select! {
                 _ = async {
                         loop {
@@ -449,9 +472,10 @@ mod on_is_ture {
             123,
             None,
             crate::bot::Server::new(
-                IpAddr::V4(std::net::Ipv4Addr::new(127, 0, 0, 1)),
+                crate::bot::Host::IpAddr(IpAddr::V4(std::net::Ipv4Addr::new(127, 0, 0, 1))),
                 8081,
                 "".to_string(),
+                false,
             ),
             false,
         );
@@ -487,7 +511,7 @@ mod on_is_ture {
             bot.clone(),
             123,
             vec![],
-            IpAddr::V4(Ipv4Addr::new(1, 1, 1, 1)),
+            crate::bot::Host::IpAddr(IpAddr::V4(Ipv4Addr::new(1, 1, 1, 1))),
             8081,
             api_tx,
         );

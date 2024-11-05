@@ -1,10 +1,7 @@
-use super::{ApiAndOneshot, ApiReturn, Bot, SendApi};
+use super::{ApiAndOneshot, ApiReturn, Bot, Host, SendApi};
 use log::error;
 use rand::Rng;
-use std::{
-    net::IpAddr,
-    sync::{Arc, RwLock},
-};
+use std::sync::{Arc, RwLock};
 use tokio::sync::{mpsc, oneshot};
 
 pub mod kovi_api;
@@ -27,7 +24,7 @@ pub struct RuntimeBot {
     /// 副管理员，不包含主管理员
     pub admin: Vec<i64>,
 
-    pub host: IpAddr,
+    pub host: Host,
     pub port: u16,
 
     pub(crate) bot: Arc<RwLock<Bot>>,

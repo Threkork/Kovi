@@ -123,7 +123,7 @@ fn enable_plugin<T: AsRef<str>>(
         (
             bot_read.information.main_admin,
             bot_read.information.admin.clone(),
-            bot_read.information.server.host,
+            bot_read.information.server.host.clone(),
             bot_read.information.server.port,
         )
     };
