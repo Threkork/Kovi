@@ -49,4 +49,4 @@ native-tls = [
     "reqwest/native-tls-vendored",
     "tokio-tungstenite/native-tls-vendored",
 ]
-rustls-tls = ["reqwest/rustls-tls", "tokio-tungstenite/rustls-tls-native-roots"]
+rustls-tls = ["reqwest/rustls-tls-native-roots", "tokio-tungstenite/rustls-tls-native-roots"]
