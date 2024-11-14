@@ -159,7 +159,6 @@ impl CQMessage {
     }
 
     /// 消息加上 segment
-    #[deprecated(note = "请使用 add() 代替")]
     pub fn add_segment<T>(mut self, segment: T) -> Self
     where
         Value: From<T>,
@@ -169,12 +168,6 @@ impl CQMessage {
         if let Ok(segment) = serde_json::from_value::<Segment>(value) {
             self.0.push_str(&super::parse_cq_code(&segment));
         }
-        self
-    }
-
-    pub fn add(mut self, segment: Segment) -> Self {
-        self.0.push_str(&super::parse_cq_code(&segment));
-
         self
     }
 }

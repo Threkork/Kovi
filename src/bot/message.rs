@@ -108,18 +108,9 @@ impl From<CQMessage> for Message {
     }
 }
 
-
 impl PartialEq for Message {
     fn eq(&self, other: &Self) -> bool {
         self.0 == other.0
-    }
-}
-
-impl Iterator for Message {
-    type Item = Segment;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        self.0.pop()
     }
 }
 
@@ -127,25 +118,43 @@ impl Add for Message {
     type Output = Message;
 
     fn add(mut self, rhs: Self) -> Self::Output {
-        for seg in rhs {
+        for seg in rhs.into_iter() {
             self.push(seg);
         }
         self
     }
 }
 
-impl<'a> IntoIterator for &'a Message {
-    type Item = &'a Segment;
-    type IntoIter = std::slice::Iter<'a, Segment>;
-
-    fn into_iter(self) -> Self::IntoIter {
+impl Message {
+    pub fn iter(&self) -> std::slice::Iter<'_, Segment> {
         self.0.iter()
+    }
+
+    pub fn iter_mut(&mut self) -> std::slice::IterMut<'_, Segment> {
+        self.0.iter_mut()
     }
 }
 
-impl Message {
-    pub fn iter(&self) -> std::slice::Iter<Segment> {
-        self.0.iter()
+impl IntoIterator for Message {
+    type Item = Segment;
+    type IntoIter = std::vec::IntoIter<Segment>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.0.into_iter()
+    }
+}
+
+impl std::ops::Index<usize> for Message {
+    type Output = Segment;
+
+    fn index(&self, index: usize) -> &Self::Output {
+        &self.0[index]
+    }
+}
+
+impl std::ops::IndexMut<usize> for Message {
+    fn index_mut(&mut self, index: usize) -> &mut Self::Output {
+        &mut self.0[index]
     }
 }
 
@@ -201,6 +210,14 @@ impl Message {
             }
         }
         result
+    }
+
+    pub fn get_from_index(&self, index: usize) -> Option<&Segment> {
+        self.0.get(index)
+    }
+
+    pub fn get_mut_from_index(&mut self, index: usize) -> Option<&mut Segment> {
+        self.0.get_mut(index)
     }
 }
 

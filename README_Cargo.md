@@ -14,11 +14,9 @@ More features will be added in future updates.
 
 **Note⚠️: The project currently only supports the OneBot V11 forward WebSocket protocol.**
 
-The original intent behind this project is to enhance group activity, facilitate group management, and is intended for personal entertainment, learning, and communication purposes only. **No one is allowed to use this project for any illegal activities.**
-
 ## Getting Started
 
-The project is written in [Rust](#), and plugins also need to be written in [Rust](#). Please ensure that Rust is installed locally.
+It's recommended to use `kovi-cli` to manage your Kovi bot project.
 
 1. Create a basic Rust project and add the framework.
 
@@ -34,25 +32,29 @@ cd ./my-kovi-bot
 use kovi::build_bot;
 
 fn main() {
-    let a = build_bot!();
-    a.run()
+    let bot = build_bot!();
+    bot.run()
 }
 ```
 
 If this is your first run, during `build_bot`, you'll be prompted to enter some information to create the `kovi.conf.json` file, which is required for Kovi to run.
 
 ```
+✔ What is the type of the host of the OneBot server? · IPv4
+
 ✔ What is the IP of the OneBot server? · 127.0.0.1
 (Default: 127.0.0.1)
 
 ✔ What is the port of the OneBot server? · 8081
 (Default: 8081)
 
-✔ What is the access_token of the OneBot server? · 
-(Default: Null)
+✔ What is the access_token of the OneBot server? (Optional) ·
+(Default: empty)
 
-✔ What is the ID of the main administrator? 
-(No default value)
+✔ What is the ID of the main administrator? (Not used yet)
+(Optional)
+
+✔ Do you want to view more optional options? · No
 ```
 
 ## Plugin Development
@@ -132,10 +134,10 @@ async fn main() {
 }
 ```
 
-The `main()` function runs only once when KoviBot starts.
+The `main()` function runs only once when plugin starts.
 
 The closure passed to `plugin::on_msg()` runs every time a message is received.
 
-Kovi has encapsulated all available OneBot standard APIs. To extend the API, you can use `RuntimeBot`'s `send_api()` to send APIs yourself.
+Kovi has encapsulated all available OneBot standard APIs. To extend the API, you can use `RuntimeBot`'s `send_api()` to send APIs yourself. You can check out the API extension plugins available for your needs at [Kovi Plugin Shop](https://threkork.github.io/kovi-doc/start/plugins).
 
 You can find more documentation in the [Kovi Doc](https://threkork.github.io/kovi-doc/).
