@@ -43,7 +43,6 @@ impl TaskManager {
         let mut task_manager = self.handles.lock();
 
         let map = task_manager.map.borrow_mut();
-        println!("{:?}", map);
         let vec = match map.get(plugin_name) {
             Some(v) => v,
             None => return,

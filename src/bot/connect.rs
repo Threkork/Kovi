@@ -174,7 +174,9 @@ impl Bot {
                                 };
 
                                 if r.is_err() {
-                                    log::error!("Return Api failed, the receiver has been closed")
+                                    log::debug!(
+                                        "Return Api to plugin failed, the receiver has been closed"
+                                    )
                                 };
                             }
 
