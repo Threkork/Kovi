@@ -263,7 +263,7 @@ fn config_file_write_and_return() -> Result<KoviConf, std::io::Error> {
     }
 
     let host_type: HostType = {
-        let items = vec!["IPv4", "IPv6", "Domain"];
+        let items = ["IPv4", "IPv6", "Domain"];
         let select = Select::with_theme(&ColorfulTheme::default())
             .with_prompt("What is the type of the host of the OneBot server?")
             .items(&items)
@@ -327,7 +327,7 @@ fn config_file_write_and_return() -> Result<KoviConf, std::io::Error> {
 
     // 是否查看更多可选选项
     let more: bool = {
-        let items = vec!["No", "Yes"];
+        let items = ["No", "Yes"];
         let select = Select::with_theme(&ColorfulTheme::default())
             .with_prompt("Do you want to view more optional options?")
             .items(&items)
