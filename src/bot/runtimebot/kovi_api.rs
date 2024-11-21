@@ -1,8 +1,8 @@
 use super::RuntimeBot;
 use crate::{
-    bot::ApiAndOneshot,
+    bot::{ApiAndOneshot, PLUGIN_NAME},
     error::BotError,
-    task::{PLUGIN_NAME, TASK_MANAGER},
+    task::TASK_MANAGER,
     Bot, PluginBuilder,
 };
 use std::{

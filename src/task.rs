@@ -1,3 +1,4 @@
+use crate::bot::PLUGIN_NAME;
 use ahash::RandomState;
 use parking_lot::Mutex;
 use std::{
@@ -74,11 +75,6 @@ impl TaskAbortHandles {
             vec.shrink_to_fit();
         }
     }
-}
-
-
-tokio::task_local! {
-    pub(crate) static PLUGIN_NAME: Arc<String>;
 }
 
 

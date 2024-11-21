@@ -5,9 +5,7 @@ use std::sync::{Arc, RwLock};
 use tokio::sync::{mpsc, oneshot};
 
 pub mod kovi_api;
-
 pub mod onebot_api;
-
 
 /// 运行时的Bot，可以用来发送api，需要从PluginBuilder的.build_runtime_bot()构建。
 /// # Examples

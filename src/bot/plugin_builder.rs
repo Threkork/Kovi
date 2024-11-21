@@ -1,18 +1,13 @@
-use crate::task::PLUGIN_NAME;
-
-use super::run::PLUGIN_BUILDER;
 use super::{runtimebot::RuntimeBot, Bot};
-use super::{ApiAndOneshot, Host};
+use super::{ApiAndOneshot, Host, PLUGIN_BUILDER, PLUGIN_NAME};
 use croner::errors::CronError;
 use croner::Cron;
 use event::{AllMsgEvent, AllNoticeEvent, AllRequestEvent};
 use log::error;
 use std::future::Future;
-use std::path::PathBuf;
 use std::pin::Pin;
 use std::sync::{Arc, RwLock};
 use tokio::sync::mpsc;
-
 
 pub mod event;
 
@@ -54,9 +49,12 @@ impl Listen {
         self.notice.shrink_to_fit();
         self.request.shrink_to_fit();
         self.drop.shrink_to_fit();
+        #[cfg(feature = "message_sent")]
+        self.msg_sent.clear();
+        #[cfg(feature = "message_sent")]
+        self.msg_sent.shrink_to_fit();
     }
 }
-
 
 #[derive(Clone)]
 pub struct PluginBuilder {
@@ -87,22 +85,8 @@ impl PluginBuilder {
         PluginBuilder { runtime_bot }
     }
 
-    #[deprecated(note = "请使用 get_runtime_bot() 代替")]
-    pub fn build_runtime_bot() -> RuntimeBot {
-        PLUGIN_BUILDER.with(|p| (*p.runtime_bot).clone())
-    }
-
     pub fn get_runtime_bot() -> Arc<RuntimeBot> {
         PLUGIN_BUILDER.with(|p| p.runtime_bot.clone())
-    }
-
-    #[deprecated(note = "请使用 RuntimeBot 的 get_data_path() 代替")]
-    pub fn get_data_path() -> PathBuf {
-        let mut current_dir = std::env::current_dir().unwrap();
-        PLUGIN_BUILDER.with(|p| {
-            current_dir.push(format!("data/{}", p.runtime_bot.plugin_name));
-            current_dir
-        })
     }
 
     pub fn get_plugin_name() -> String {
@@ -144,7 +128,6 @@ impl PluginBuilder {
             bot_plugin.listen.msg.push(Arc::new(listen_fn));
         })
     }
-
 
     /// 注册管理员消息处理函数。
     ///
@@ -258,7 +241,6 @@ impl PluginBuilder {
             }));
         })
     }
-
 
     /// 注册消息处理函数。
     ///
@@ -457,7 +439,7 @@ macro_rules! async_move {
 #[cfg(test)]
 mod on_is_ture {
     use crate::{
-        bot::{plugin_builder::ListenMsgFn, run::PLUGIN_BUILDER, ApiAndOneshot},
+        bot::{plugin_builder::ListenMsgFn, ApiAndOneshot, PLUGIN_BUILDER},
         Bot, PluginBuilder,
     };
     use std::{
@@ -499,12 +481,10 @@ mod on_is_ture {
             })
         }
 
-
         let mut bot = Bot::build(conf);
         bot.mount_main("some", "0.0.1", Arc::new(pin_something));
         let main_foo = bot.plugins.get("some").unwrap().main.clone();
         let bot = Arc::new(RwLock::new(bot));
-
 
         let p = PluginBuilder::new(
             "some".to_string(),
@@ -516,7 +496,6 @@ mod on_is_ture {
             api_tx,
         );
         PLUGIN_BUILDER.scope(p, (main_foo)()).await;
-
 
         let bot_lock = bot.write().unwrap();
         let bot_plugin = bot_lock.plugins.get("some").unwrap();

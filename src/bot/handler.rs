@@ -1,4 +1,4 @@
-use crate::{bot::*, task::PLUGIN_NAME};
+use crate::bot::*;
 use log::{debug, error, info, warn};
 #[cfg(feature = "message_sent")]
 use plugin_builder::AllMsgFn;

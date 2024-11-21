@@ -2,7 +2,10 @@ use super::{
     handler::{InternalEvent, KoviEvent},
     ApiAndOneshot, Bot, BotPlugin,
 };
-use crate::{task::PLUGIN_NAME, PluginBuilder};
+use crate::{
+    bot::{PLUGIN_BUILDER, PLUGIN_NAME},
+    PluginBuilder,
+};
 use log::error;
 use std::{
     borrow::Borrow,
@@ -12,10 +15,6 @@ use tokio::{
     runtime::Runtime,
     sync::mpsc::{self, Sender},
 };
-
-tokio::task_local! {
-    pub(crate) static PLUGIN_BUILDER: PluginBuilder;
-}
 
 impl Bot {
     /// 运行bot
@@ -61,7 +60,6 @@ impl Bot {
                 let access_token = access_token.clone();
                 Self::ws_send_api(host, port, access_token, secure, api_rx, event_tx)
             });
-
 
             // 运行所有的main
             tokio::spawn({
@@ -149,12 +147,10 @@ impl Bot {
     }
 }
 
-
-#[cfg(windows)]
-use tokio::signal::windows;
-
 #[cfg(unix)]
 use tokio::signal::unix::{signal, SignalKind};
+#[cfg(windows)]
+use tokio::signal::windows;
 
 async fn drop_check(tx: Sender<InternalEvent>, exit: bool) {
     #[cfg(windows)]

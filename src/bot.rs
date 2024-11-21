@@ -16,13 +16,23 @@ use std::pin::Pin;
 use std::{fs, net::IpAddr, process::exit, sync::Arc};
 use tokio::sync::mpsc::{self, Sender};
 use tokio::sync::{oneshot, watch};
-mod connect; 
+
+use crate::error::BotError;
+mod connect;
 mod handler;
 mod run;
 
 pub mod message;
 pub mod plugin_builder;
 pub mod runtimebot;
+
+tokio::task_local! {
+    pub static PLUGIN_BUILDER: crate::PluginBuilder;
+}
+
+tokio::task_local! {
+    pub static PLUGIN_NAME: Arc<String>;
+}
 
 /// kovi的配置
 #[derive(Deserialize, Serialize)]
@@ -62,6 +72,7 @@ pub struct Bot {
 
 #[derive(Clone)]
 pub struct BotPlugin {
+    pub(crate) enable_on_startup: bool,
     pub(crate) enabled: watch::Sender<bool>,
     pub version: String,
     pub(crate) main: Arc<KoviAsyncFn>,
@@ -99,7 +110,6 @@ impl Display for Host {
         }
     }
 }
-
 
 impl Server {
     pub fn new(host: Host, port: u16, access_token: String, secure: bool) -> Self {
@@ -194,6 +204,7 @@ impl Bot {
         let version = String::from(version);
         let (tx, _rx) = watch::channel(true);
         let bot_plugin = BotPlugin {
+            enable_on_startup: true,
             enabled: tx,
             version,
             main,
@@ -201,7 +212,6 @@ impl Bot {
         };
         self.plugins.insert(name, bot_plugin);
     }
-
 
     pub fn load_local_conf() -> KoviConf {
         //检测文件是kovi.conf.json还是kovi.conf.toml
@@ -251,6 +261,55 @@ impl Bot {
         }
 
         conf_json
+    }
+}
+
+impl Bot {
+    pub fn set_all_plugin_startup(mut self, enabled: bool) -> Self {
+        for plugin in self.plugins.values_mut() {
+            plugin.enable_on_startup = enabled
+        }
+        self
+    }
+
+    pub fn set_all_plugin_startup_ref(&mut self, enabled: bool) {
+        for plugin in self.plugins.values_mut() {
+            plugin.enable_on_startup = enabled
+        }
+    }
+
+    pub fn set_plugin_startup<T: AsRef<str>>(
+        mut self,
+        name: T,
+        enabled: bool,
+    ) -> Result<Self, BotError> {
+        let name = name.as_ref();
+        if let Some(n) = self.plugins.get_mut(name) {
+            n.enable_on_startup = enabled;
+            Ok(self)
+        } else {
+            Err(BotError::PluginNotFound(format!(
+                "Plugin {} not found",
+                name
+            )))
+        }
+    }
+
+    pub fn set_plugin_startup_ref<T: AsRef<str>>(
+        &mut self,
+        name: T,
+        enabled: bool,
+    ) -> Result<(), BotError> {
+        let name = name.as_ref();
+        if let Some(n) = self.plugins.get_mut(name) {
+            n.enable_on_startup = enabled;
+            Ok(())
+        } else {
+            Err(BotError::PluginNotFound(format!(
+                "Plugin {} not found",
+                name
+            )))
+        }
     }
 }
 
@@ -399,7 +458,6 @@ fn config_file_write_and_return() -> Result<KoviConf, std::io::Error> {
     Ok(config)
 }
 
-
 pub(crate) async fn exit_and_eprintln<E>(e: E, event_tx: Sender<InternalEvent>)
 where
     E: std::fmt::Display,
@@ -431,7 +489,6 @@ macro_rules! build_bot {
         }
     };
 }
-
 
 #[test]
 fn build_bot() {
