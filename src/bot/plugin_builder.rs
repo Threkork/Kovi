@@ -58,6 +58,7 @@ impl Listen {
 
 #[derive(Clone)]
 pub struct PluginBuilder {
+    pub(crate) bot: Arc<RwLock<Bot>>,
     pub(crate) runtime_bot: Arc<RuntimeBot>,
 }
 
@@ -71,18 +72,20 @@ impl PluginBuilder {
         port: u16,
         api_tx: mpsc::Sender<ApiAndOneshot>,
     ) -> Self {
+        let bot_weak = Arc::downgrade(&bot);
+
         let runtime_bot = Arc::new(RuntimeBot {
             main_admin,
             admin,
             host,
             port,
 
-            bot,
+            bot: bot_weak,
             plugin_name: name,
             api_tx,
         });
 
-        PluginBuilder { runtime_bot }
+        PluginBuilder { bot, runtime_bot }
     }
 
     pub fn get_runtime_bot() -> Arc<RuntimeBot> {
@@ -109,7 +112,7 @@ impl PluginBuilder {
         Fut::Output: Send,
     {
         PLUGIN_BUILDER.with(|p| {
-            let mut bot = p.runtime_bot.bot.write().unwrap();
+            let mut bot = p.bot.write().unwrap();
             let bot_plugin = bot.plugins.get_mut(&p.runtime_bot.plugin_name).unwrap();
 
             let handler = Arc::new(handler);
@@ -139,7 +142,7 @@ impl PluginBuilder {
         Fut::Output: Send,
     {
         PLUGIN_BUILDER.with(|p| {
-            let mut bot = p.runtime_bot.bot.write().unwrap();
+            let mut bot = p.bot.write().unwrap();
             let bot_plugin = bot.plugins.get_mut(&p.runtime_bot.plugin_name).unwrap();
 
             bot_plugin
@@ -169,7 +172,7 @@ impl PluginBuilder {
         Fut::Output: Send,
     {
         PLUGIN_BUILDER.with(|p| {
-            let mut bot = p.runtime_bot.bot.write().unwrap();
+            let mut bot = p.bot.write().unwrap();
             let bot_plugin = bot.plugins.get_mut(&p.runtime_bot.plugin_name).unwrap();
 
             bot_plugin
@@ -196,7 +199,7 @@ impl PluginBuilder {
         Fut::Output: Send,
     {
         PLUGIN_BUILDER.with(|p| {
-            let mut bot = p.runtime_bot.bot.write().unwrap();
+            let mut bot = p.bot.write().unwrap();
             let bot_plugin = bot.plugins.get_mut(&p.runtime_bot.plugin_name).unwrap();
 
             bot_plugin
@@ -252,7 +255,7 @@ impl PluginBuilder {
         Fut::Output: Send,
     {
         PLUGIN_BUILDER.with(|p| {
-            let mut bot = p.runtime_bot.bot.write().unwrap();
+            let mut bot = p.bot.write().unwrap();
             let bot_plugin = bot.plugins.get_mut(&p.runtime_bot.plugin_name).unwrap();
 
             bot_plugin.listen.notice.push(Arc::new({
@@ -279,7 +282,7 @@ impl PluginBuilder {
         Fut::Output: Send,
     {
         PLUGIN_BUILDER.with(|p| {
-            let mut bot = p.runtime_bot.bot.write().unwrap();
+            let mut bot = p.bot.write().unwrap();
             let bot_plugin = bot.plugins.get_mut(&p.runtime_bot.plugin_name).unwrap();
 
             bot_plugin.listen.request.push(Arc::new({
@@ -306,7 +309,7 @@ impl PluginBuilder {
         Fut::Output: Send,
     {
         PLUGIN_BUILDER.with(|p| {
-            let mut bot = p.runtime_bot.bot.write().unwrap();
+            let mut bot = p.bot.write().unwrap();
             let bot_plugin = bot.plugins.get_mut(&p.runtime_bot.plugin_name).unwrap();
 
             bot_plugin.listen.drop.push(Arc::new({
@@ -364,7 +367,7 @@ impl PluginBuilder {
     {
         let name = Arc::new(p.runtime_bot.plugin_name.clone());
         let mut enabled = {
-            let bot = p.runtime_bot.bot.read().unwrap();
+            let bot = p.bot.read().unwrap();
             let plugin = bot.plugins.get(&*name).unwrap();
             plugin.enabled.subscribe()
         };

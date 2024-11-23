@@ -51,7 +51,12 @@ impl KoviApi for RuntimeBot {
             return Ok(());
         }
 
-        disable_plugin(self.bot.clone(), plugin_name)
+        let bot = match self.bot.upgrade() {
+            Some(b) => b,
+            None => return Err(BotError::RefExpired),
+        };
+
+        disable_plugin(bot, plugin_name)
     }
 
     fn enable_plugin<T: AsRef<str>>(&self, plugin_name: T) -> Result<(), BotError> {
@@ -59,11 +64,21 @@ impl KoviApi for RuntimeBot {
             return Ok(());
         }
 
-        enable_plugin(self.bot.clone(), plugin_name, self.api_tx.clone())
+        let bot = match self.bot.upgrade() {
+            Some(b) => b,
+            None => return Err(BotError::RefExpired),
+        };
+
+        enable_plugin(bot, plugin_name, self.api_tx.clone())
     }
 
     fn is_plugin_enable<T: AsRef<str>>(&self, plugin_name: T) -> Result<bool, BotError> {
-        let bot = self.bot.read().unwrap();
+        let bot = match self.bot.upgrade() {
+            Some(b) => b,
+            None => return Err(BotError::RefExpired),
+        };
+
+        let bot = bot.read().unwrap();
         let plugin_name = plugin_name.as_ref();
 
         let bot_plugin = match bot.plugins.get(plugin_name) {
@@ -75,7 +90,6 @@ impl KoviApi for RuntimeBot {
     }
 }
 
-
 fn disable_plugin<T: AsRef<str>>(bot: Arc<RwLock<Bot>>, plugin_name: T) -> Result<(), BotError> {
     {
         let mut bot = bot.write().unwrap();
@@ -86,7 +100,6 @@ fn disable_plugin<T: AsRef<str>>(bot: Arc<RwLock<Bot>>, plugin_name: T) -> Resul
             Some(v) => v,
             None => return Err(BotError::PluginNotFound(plugin_name.to_string())),
         };
-
 
         let plugin_name_ = Arc::new(plugin_name.to_string());
         for listen in &bot_plugin.listen.drop {

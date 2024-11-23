@@ -154,7 +154,7 @@ impl Bot {
     }
 }
 
-pub(crate) static DROP_CHECK: LazyLock<ExitCheck> = LazyLock::new(|| ExitCheck::init());
+pub(crate) static DROP_CHECK: LazyLock<ExitCheck> = LazyLock::new(ExitCheck::init);
 
 pub struct ExitCheck {
     watch_rx: watch::Receiver<bool>,

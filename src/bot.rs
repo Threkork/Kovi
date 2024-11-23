@@ -221,9 +221,8 @@ impl Bot {
                     Ok(conf) => conf,
                     Err(err) => {
                         eprintln!("Configuration file parsing error: {}", err);
-                        let conf = config_file_write_and_return()
-                            .map_err(|e| BotBuildError::FileCreateError(e.to_string()))?;
-                        conf
+                        config_file_write_and_return()
+                            .map_err(|e| BotBuildError::FileCreateError(e.to_string()))?
                     }
                 },
                 Err(err) => {
