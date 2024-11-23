@@ -1,8 +1,6 @@
 use ahash::{HashMapExt as _, RandomState};
 use dialoguer::theme::ColorfulTheme;
 use dialoguer::{Input, Select};
-use handler::InternalEvent;
-use log::{debug, error};
 use plugin_builder::Listen;
 use serde::{Deserialize, Serialize};
 use serde_json::{self, Value};
@@ -13,14 +11,14 @@ use std::future::Future;
 use std::io::Write as _;
 use std::net::{Ipv4Addr, Ipv6Addr};
 use std::pin::Pin;
-use std::{fs, net::IpAddr, process::exit, sync::Arc};
-use tokio::sync::mpsc::{self, Sender};
+use std::{fs, net::IpAddr, sync::Arc};
+use tokio::sync::mpsc::{self};
 use tokio::sync::{oneshot, watch};
 
-use crate::error::BotError;
-mod connect;
-mod handler;
-mod run;
+use crate::error::{BotBuildError, BotError};
+pub(crate) mod connect;
+pub(crate) mod handler;
+pub(crate) mod run;
 
 pub mod message;
 pub mod plugin_builder;
@@ -213,7 +211,7 @@ impl Bot {
         self.plugins.insert(name, bot_plugin);
     }
 
-    pub fn load_local_conf() -> KoviConf {
+    pub fn load_local_conf() -> Result<KoviConf, BotBuildError> {
         //检测文件是kovi.conf.json还是kovi.conf.toml
         let kovi_conf_file_exist = fs::metadata("kovi.conf.toml").is_ok();
 
@@ -222,32 +220,19 @@ impl Bot {
                 Ok(v) => match toml::from_str(&v) {
                     Ok(conf) => conf,
                     Err(err) => {
-                        eprintln!(
-                            "Failed to parse TOML:\n{}\nPlease reload the config file",
-                            err
-                        );
-                        match config_file_write_and_return() {
-                            Ok(conf) => conf,
-                            Err(err) => {
-                                eprintln!("Failed to create config file: {}", err);
-                                exit(1);
-                            }
-                        }
+                        eprintln!("Configuration file parsing error: {}", err);
+                        let conf = config_file_write_and_return()
+                            .map_err(|e| BotBuildError::FileCreateError(e.to_string()))?;
+                        conf
                     }
                 },
                 Err(err) => {
-                    eprintln!("Failed to read TOML file: {}", err);
-                    exit(1);
+                    return Err(BotBuildError::FileReadError(err.to_string()));
                 }
             }
         } else {
-            match config_file_write_and_return() {
-                Ok(conf) => conf,
-                Err(err) => {
-                    eprintln!("Failed to create config file: {}", err);
-                    exit(1);
-                }
-            }
+            config_file_write_and_return()
+                .map_err(|e| BotBuildError::FileCreateError(e.to_string()))?
         };
 
         unsafe {
@@ -260,7 +245,7 @@ impl Bot {
             }
         }
 
-        conf_json
+        Ok(conf_json)
     }
 }
 
@@ -458,24 +443,17 @@ fn config_file_write_and_return() -> Result<KoviConf, std::io::Error> {
     Ok(config)
 }
 
-pub(crate) async fn exit_and_eprintln<E>(e: E, event_tx: Sender<InternalEvent>)
-where
-    E: std::fmt::Display,
-{
-    error!("{e}\nBot connection failed, please check the configuration and restart KoviBot");
-    if let Err(e) = event_tx
-        .send(InternalEvent::KoviEvent(handler::KoviEvent::Drop))
-        .await
-    {
-        debug!("通道关闭,{e}")
-    };
-}
-
 #[macro_export]
 macro_rules! build_bot {
     ($( $plugin:ident ),* $(,)* ) => {
         {
-            let conf = kovi::bot::Bot::load_local_conf();
+            let conf = match kovi::bot::Bot::load_local_conf() {
+                Ok(c) => c,
+                Err(e) => {
+                    eprintln!("Error loading config: {}", e);
+                    panic!("Failed to load config");
+                }
+            };
             kovi::logger::try_set_logger();
             let mut bot = kovi::bot::Bot::build(conf);
 

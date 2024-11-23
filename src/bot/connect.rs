@@ -1,9 +1,10 @@
-use super::{exit_and_eprintln, handler::InternalEvent, ApiAndOneshot, ApiReturn, Bot, Host};
+use super::{handler::InternalEvent, ApiAndOneshot, ApiReturn, Bot, Host};
 use ahash::{HashMapExt as _, RandomState};
 use futures_util::{SinkExt, StreamExt};
 use log::{debug, warn};
 use reqwest::header::HeaderValue;
 use std::{collections::HashMap, net::IpAddr, sync::Arc};
+use tokio::sync::mpsc::Sender;
 use tokio::sync::{mpsc, Mutex};
 use tokio_tungstenite::{connect_async, tungstenite::client::IntoClientRequest};
 
@@ -45,7 +46,7 @@ impl Bot {
         let (ws_stream, _) = match connect_async(request).await {
             Ok(v) => v,
             Err(e) => {
-                exit_and_eprintln(e, event_tx).await;
+                connection_failed_eprintln(e, event_tx).await;
                 return;
             }
         };
@@ -68,7 +69,7 @@ impl Bot {
                             debug!("通道关闭：{e}")
                         }
                     }
-                    Err(e) => exit_and_eprintln(e, event_tx).await,
+                    Err(e) => connection_failed_eprintln(e, event_tx).await,
                 }
             }
         })
@@ -106,11 +107,10 @@ impl Bot {
             );
         }
 
-
         let (ws_stream, _) = match connect_async(request).await {
             Ok(v) => v,
             Err(e) => {
-                exit_and_eprintln(e, event_tx).await;
+                connection_failed_eprintln(e, event_tx).await;
                 return;
             }
         };
@@ -131,7 +131,7 @@ impl Bot {
                         match msg {
                             Ok(msg) => {
                                 if msg.is_close() {
-                                    exit_and_eprintln(
+                                    connection_failed_eprintln(
                                         format!("{msg}\nBot api connection failed"),
                                         event_tx,
                                     )
@@ -158,11 +158,9 @@ impl Bot {
                                     warn!("Api return error: {text}")
                                 }
 
-
                                 if return_value.echo == "None" {
                                     return;
                                 }
-
 
                                 let mut api_tx_map = api_tx_map.lock().await;
 
@@ -180,14 +178,13 @@ impl Bot {
                                 };
                             }
 
-                            Err(e) => exit_and_eprintln(e, event_tx).await,
+                            Err(e) => connection_failed_eprintln(e, event_tx).await,
                         }
                     }
                 })
                 .await;
             }
         });
-
 
         //写
         tokio::spawn({
@@ -208,10 +205,25 @@ impl Bot {
                     let msg = tokio_tungstenite::tungstenite::Message::text(api_msg.to_string());
                     let mut write_lock = write.lock().await;
                     if let Err(e) = write_lock.send(msg).await {
-                        exit_and_eprintln(e, event_tx).await;
+                        connection_failed_eprintln(e, event_tx).await;
                     }
                 }
             }
         });
     }
+}
+
+async fn connection_failed_eprintln<E>(e: E, event_tx: Sender<InternalEvent>)
+where
+    E: std::fmt::Display,
+{
+    log::error!("{e}\nBot connection failed, please check the configuration and restart KoviBot");
+    if let Err(e) = event_tx
+        .send(InternalEvent::KoviEvent(
+            crate::bot::handler::KoviEvent::Drop,
+        ))
+        .await
+    {
+        debug!("通道关闭,{e}")
+    };
 }

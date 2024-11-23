@@ -17,3 +17,16 @@ pub enum BotError {
     // #[error("Error, and no one knows why something went wrong")]
     // UnknownError(),
 }
+
+#[derive(Error, Debug)]
+pub enum BotBuildError {
+    //解析TOML文件失败
+    #[error("Failed to parse TOML:\n{0}\nPlease reload the config file")]
+    TomlParseError(String),
+    //无法创建配置文件
+    #[error("Failed to create config file: {0}")]
+    FileCreateError(String),
+    //无法读取TOML文件
+    #[error("Failed to read TOML file: {0}")]
+    FileReadError(String),
+}

@@ -9,11 +9,15 @@ use crate::{
 use log::error;
 use std::{
     borrow::Borrow,
-    sync::{Arc, RwLock},
+    process::exit,
+    sync::{Arc, LazyLock, RwLock},
 };
 use tokio::{
     runtime::Runtime,
-    sync::mpsc::{self, Sender},
+    sync::{
+        mpsc::{self, Sender},
+        watch,
+    },
 };
 
 impl Bot {
@@ -52,7 +56,7 @@ impl Bot {
             // drop检测
             tokio::spawn({
                 let event_tx = event_tx.clone();
-                drop_check(event_tx, false)
+                exit_signal_check(event_tx)
             });
 
             // api连接
@@ -108,6 +112,9 @@ impl Bot {
         };
 
         for (name, plugins) in main_job_map.iter() {
+            if !plugins.enable_on_startup {
+                continue;
+            }
             let plugin_builder = PluginBuilder::new(
                 name.clone(),
                 bot.clone(),
@@ -147,51 +154,90 @@ impl Bot {
     }
 }
 
-#[cfg(unix)]
-use tokio::signal::unix::{signal, SignalKind};
-#[cfg(windows)]
-use tokio::signal::windows;
+pub(crate) static DROP_CHECK: LazyLock<ExitCheck> = LazyLock::new(|| ExitCheck::init());
 
-async fn drop_check(tx: Sender<InternalEvent>, exit: bool) {
-    #[cfg(windows)]
-    {
-        let mut sig_ctrl_break = windows::ctrl_break().unwrap();
-        let mut sig_ctrl_c = windows::ctrl_c().unwrap();
-        let mut sig_ctrl_close = windows::ctrl_close().unwrap();
-        let mut sig_ctrl_logoff = windows::ctrl_logoff().unwrap();
-        let mut sig_ctrl_shutdown = windows::ctrl_shutdown().unwrap();
-        tokio::select! {
-            _ = sig_ctrl_break.recv() => {}
-            _ = sig_ctrl_c.recv() => {}
-            _ = sig_ctrl_close.recv() => {}
-            _ = sig_ctrl_logoff.recv() => {}
-            _ = sig_ctrl_shutdown.recv() => {}
-        }
+pub struct ExitCheck {
+    watch_rx: watch::Receiver<bool>,
+    join_handle: tokio::task::JoinHandle<()>,
+}
+
+impl Drop for ExitCheck {
+    fn drop(&mut self) {
+        self.join_handle.abort();
     }
-    #[cfg(unix)]
-    {
-        let mut sig_hangup = signal(SignalKind::hangup()).unwrap();
-        let mut sig_alarm = signal(SignalKind::alarm()).unwrap();
-        let mut sig_interrupt = signal(SignalKind::interrupt()).unwrap();
-        let mut sig_quit = signal(SignalKind::quit()).unwrap();
-        let mut sig_terminate = signal(SignalKind::terminate()).unwrap();
-        tokio::select! {
-            _ = sig_hangup.recv() => {}
-            _ = sig_alarm.recv() => {}
-            _ = sig_interrupt.recv() => {}
-            _ = sig_quit.recv() => {}
-            _ = sig_terminate.recv() => {}
+}
+
+impl ExitCheck {
+    fn init() -> ExitCheck {
+        let (tx, watch_rx) = watch::channel(false);
+
+        // 启动 drop check 任务
+        let join_handle = tokio::spawn(async move {
+            Self::await_exit_signal().await;
+
+            let _ = tx.send(true);
+
+            Self::await_exit_signal().await;
+            exit(1);
+        });
+
+        ExitCheck {
+            watch_rx,
+            join_handle,
         }
     }
 
-    if exit {
-        std::process::exit(1);
+    async fn await_exit_signal() {
+        #[cfg(unix)]
+        use tokio::signal::unix::{signal, SignalKind};
+        #[cfg(windows)]
+        use tokio::signal::windows;
+
+        #[cfg(windows)]
+        {
+            let mut sig_ctrl_break = windows::ctrl_break().unwrap();
+            let mut sig_ctrl_c = windows::ctrl_c().unwrap();
+            let mut sig_ctrl_close = windows::ctrl_close().unwrap();
+            let mut sig_ctrl_logoff = windows::ctrl_logoff().unwrap();
+            let mut sig_ctrl_shutdown = windows::ctrl_shutdown().unwrap();
+
+            tokio::select! {
+                _ = sig_ctrl_break.recv() => {}
+                _ = sig_ctrl_c.recv() => {}
+                _ = sig_ctrl_close.recv() => {}
+                _ = sig_ctrl_logoff.recv() => {}
+                _ = sig_ctrl_shutdown.recv() => {}
+            }
+        }
+
+        #[cfg(unix)]
+        {
+            let mut sig_hangup = signal(SignalKind::hangup()).unwrap();
+            let mut sig_alarm = signal(SignalKind::alarm()).unwrap();
+            let mut sig_interrupt = signal(SignalKind::interrupt()).unwrap();
+            let mut sig_quit = signal(SignalKind::quit()).unwrap();
+            let mut sig_terminate = signal(SignalKind::terminate()).unwrap();
+
+            tokio::select! {
+                _ = sig_hangup.recv() => {}
+                _ = sig_alarm.recv() => {}
+                _ = sig_interrupt.recv() => {}
+                _ = sig_quit.recv() => {}
+                _ = sig_terminate.recv() => {}
+            }
+        }
     }
+
+    pub async fn await_exit_signal_change(&self) {
+        let mut rx = self.watch_rx.clone();
+        rx.changed().await.unwrap();
+    }
+}
+
+pub(crate) async fn exit_signal_check(tx: Sender<InternalEvent>) {
+    DROP_CHECK.await_exit_signal_change().await;
 
     tx.send(InternalEvent::KoviEvent(KoviEvent::Drop))
         .await
         .unwrap();
-
-    //递归运行本函数，第二次就会结束进程
-    Box::pin(drop_check(tx, true)).await;
 }
