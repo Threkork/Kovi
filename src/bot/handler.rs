@@ -10,7 +10,6 @@ use serde_json::{json, Value};
 use std::sync::{Arc, RwLock};
 use tokio::sync::oneshot;
 
-
 /// Kovi内部事件
 pub enum InternalEvent {
     KoviEvent(KoviEvent),
@@ -35,20 +34,12 @@ impl Bot {
 
     pub(crate) async fn handle_kovi_event(bot: Arc<RwLock<Self>>, event: KoviEvent) {
         let drop_task = {
-            let bot_read = bot.read().unwrap();
+            let mut bot_write = bot.write().unwrap();
             match event {
                 KoviEvent::Drop => {
                     let mut task_vec = Vec::new();
-                    for (name, plugin) in bot_read.plugins.iter() {
-                        let name_ = Arc::new(name.clone());
-                        for listen in &plugin.listen.drop {
-                            let name = name_.clone();
-                            let listen = listen.clone();
-                            log::info!("Plugin '{}' is dropping, please wait. 插件 '{}' 正在做最后清理，请稍后。", name, name);
-                            let task =
-                                tokio::spawn(PLUGIN_NAME.scope(name, Self::handler_drop(listen)));
-                            task_vec.push(task);
-                        }
+                    for plugin in bot_write.plugins.values_mut() {
+                        task_vec.push(plugin.shutdown());
                     }
                     Some(task_vec)
                 }

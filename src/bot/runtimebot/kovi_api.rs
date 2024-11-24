@@ -1,10 +1,5 @@
 use super::RuntimeBot;
-use crate::{
-    bot::{ApiAndOneshot, PLUGIN_NAME},
-    error::BotError,
-    task::TASK_MANAGER,
-    Bot, PluginBuilder,
-};
+use crate::{bot::ApiAndOneshot, error::BotError, Bot, PluginBuilder};
 use std::{
     path::PathBuf,
     sync::{Arc, RwLock},
@@ -90,7 +85,10 @@ impl KoviApi for RuntimeBot {
     }
 }
 
-fn disable_plugin<T: AsRef<str>>(bot: Arc<RwLock<Bot>>, plugin_name: T) -> Result<(), BotError> {
+pub(crate) fn disable_plugin<T: AsRef<str>>(
+    bot: Arc<RwLock<Bot>>,
+    plugin_name: T,
+) -> Result<(), BotError> {
     {
         let mut bot = bot.write().unwrap();
 
@@ -100,24 +98,7 @@ fn disable_plugin<T: AsRef<str>>(bot: Arc<RwLock<Bot>>, plugin_name: T) -> Resul
             Some(v) => v,
             None => return Err(BotError::PluginNotFound(plugin_name.to_string())),
         };
-
-        let plugin_name_ = Arc::new(plugin_name.to_string());
-        for listen in &bot_plugin.listen.drop {
-            let listen_clone = listen.clone();
-            let plugin_name_ = plugin_name_.clone();
-            tokio::spawn(async move {
-                PLUGIN_NAME
-                    .scope(plugin_name_, Bot::handler_drop(listen_clone))
-                    .await;
-            });
-        }
-
-        TASK_MANAGER.disable_plugin(plugin_name);
-
-        bot_plugin.enabled.send_modify(|v| {
-            *v = false;
-        });
-        bot_plugin.listen.clear();
+        bot_plugin.shutdown();
     }
 
     Ok(())

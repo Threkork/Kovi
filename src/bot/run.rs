@@ -9,6 +9,7 @@ use crate::{
 use log::error;
 use std::{
     borrow::Borrow,
+    future::Future,
     process::exit,
     sync::{Arc, LazyLock, RwLock},
 };
@@ -18,24 +19,31 @@ use tokio::{
         mpsc::{self, Sender},
         watch,
     },
+    task::JoinHandle,
 };
 
+pub(crate) static RUNTIME: LazyLock<Runtime> = LazyLock::new(|| Runtime::new().unwrap());
+
 impl Bot {
+    pub fn spawn<F>(&mut self, future: F) -> JoinHandle<F::Output>
+    where
+        F: Future + Send + 'static,
+        F::Output: Send + 'static,
+    {
+        let join = tokio::spawn(future);
+        self.run_abort.push(join.abort_handle());
+        join
+    }
+
     /// 运行bot
-    /// **注意此函数会阻塞并且接管程序退出, 程序不会运行后续所有代码**
+    ///
+    /// **注意此函数会阻塞, 直到Bot连接失效，或者有退出信号传入程序**
     pub fn run(self) {
-        let (host, port, access_token, secure) = (
-            self.information.server.host.clone(),
-            self.information.server.port,
-            self.information.server.access_token.clone(),
-            self.information.server.secure,
-        );
+        let server = self.information.server.clone();
 
         let bot = Arc::new(RwLock::new(self));
 
-        let rt = Runtime::new().unwrap();
-
-        rt.block_on(async {
+        RUNTIME.block_on(async {
             //处理连接，从msg_tx返回消息
             let (event_tx, mut event_rx): (
                 mpsc::Sender<InternalEvent>,
@@ -46,31 +54,40 @@ impl Bot {
             let (api_tx, api_rx): (mpsc::Sender<ApiAndOneshot>, mpsc::Receiver<ApiAndOneshot>) =
                 mpsc::channel(32);
 
-            // 事件连接
-            tokio::spawn({
+            // 连接
+            let connect_task = tokio::spawn({
                 let event_tx = event_tx.clone();
-                let access_token = access_token.clone();
-                Self::ws_connect(host.clone(), port, access_token, secure, event_tx)
+                Self::ws_connect(
+                    server,
+                    api_rx,
+                    event_tx,
+                    bot.clone(),
+                )
             });
 
+            let connect_res = connect_task.await.unwrap();
+
+            if let Err(e) = connect_res {
+                error!("{e}\nBot connection failed, please check the configuration and restart KoviBot");
+                return;
+            }
+
+            let mut bot_write = bot.write().unwrap();
+
             // drop检测
-            tokio::spawn({
-                let event_tx = event_tx.clone();
+            bot_write.spawn({
+                let event_tx = event_tx;
                 exit_signal_check(event_tx)
             });
 
-            // api连接
-            tokio::spawn({
-                let access_token = access_token.clone();
-                Self::ws_send_api(host, port, access_token, secure, api_rx, event_tx)
-            });
-
             // 运行所有的main
-            tokio::spawn({
+            bot_write.spawn({
                 let bot = bot.clone();
                 let api_tx = api_tx.clone();
                 async move { Self::run_mains(bot, api_tx) }
             });
+
+            drop(bot_write);
 
             let mut drop_task = None;
             //处理事件，每个事件都会来到这里

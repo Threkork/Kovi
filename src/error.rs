@@ -14,7 +14,7 @@ pub enum BotError {
     //没有寻找到插件
     #[error("Plugin not found: {0}")]
     PluginNotFound(String),
-    #[error("Weak reference has expired")]
+    #[error("Bot's Weak reference has expired")]
     RefExpired,
 }
 

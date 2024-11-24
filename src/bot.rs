@@ -14,8 +14,10 @@ use std::pin::Pin;
 use std::{fs, net::IpAddr, sync::Arc};
 use tokio::sync::mpsc::{self};
 use tokio::sync::{oneshot, watch};
+use tokio::task::JoinHandle;
 
 use crate::error::{BotBuildError, BotError};
+use crate::task::TASK_MANAGER;
 pub(crate) mod connect;
 pub(crate) mod handler;
 pub(crate) mod run;
@@ -61,17 +63,28 @@ impl KoviConf {
 
 type KoviAsyncFn = dyn Fn() -> Pin<Box<dyn Future<Output = ()> + Send>> + Send + Sync;
 
+impl Drop for Bot {
+    fn drop(&mut self) {
+        for i in self.run_abort.iter() {
+            i.abort();
+        }
+    }
+}
+
 /// bot结构体
 #[derive(Clone)]
 pub struct Bot {
     pub information: BotInformation,
     pub plugins: HashMap<String, BotPlugin, RandomState>,
+    pub(crate) run_abort: Vec<tokio::task::AbortHandle>,
 }
 
 #[derive(Clone)]
 pub struct BotPlugin {
     pub(crate) enable_on_startup: bool,
     pub(crate) enabled: watch::Sender<bool>,
+
+    pub name: String,
     pub version: String,
     pub(crate) main: Arc<KoviAsyncFn>,
     pub(crate) listen: Listen,
@@ -166,6 +179,43 @@ impl SendApi {
     }
 }
 
+impl BotPlugin {
+    fn shutdown(&mut self) -> JoinHandle<()> {
+        log::info!(
+            "Plugin '{}' is dropping. 插件 '{}' 正在做清理。",
+            self.name,
+            self.name
+        );
+
+        let plugin_name_ = Arc::new(self.name.clone());
+
+        let mut task_vec = Vec::new();
+
+        for listen in &self.listen.drop {
+            let listen_clone = listen.clone();
+            let plugin_name_ = plugin_name_.clone();
+            let task = tokio::spawn(async move {
+                PLUGIN_NAME
+                    .scope(plugin_name_, Bot::handler_drop(listen_clone))
+                    .await;
+            });
+            task_vec.push(task);
+        }
+
+        TASK_MANAGER.disable_plugin(&self.name);
+
+        self.enabled.send_modify(|v| {
+            *v = false;
+        });
+        self.listen.clear();
+        tokio::spawn(async move {
+            for task in task_vec {
+                let _ = task.await;
+            }
+        })
+    }
+}
+
 impl Bot {
     /// 构建一个bot实例
     /// # Examples
@@ -191,6 +241,7 @@ impl Bot {
                 server: conf.server,
             },
             plugins: HashMap::<_, _, RandomState>::new(),
+            run_abort: Vec::new(),
         }
     }
 
@@ -204,6 +255,7 @@ impl Bot {
         let bot_plugin = BotPlugin {
             enable_on_startup: true,
             enabled: tx,
+            name: name.clone(),
             version,
             main,
             listen: Listen::default(),
