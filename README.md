@@ -2,26 +2,26 @@
 
 ![Badge](https://img.shields.io/badge/OneBot-11-black) [![群](https://img.shields.io/badge/QQ%E7%BE%A4-857054777-54aeff)](https://qm.qq.com/q/kmpSBOVaCI)
 
-**English** | [简体中文](README_zh.md)
+**简体中文** | [English](README_EN.md)
 
 </div>
 
 # Kovi
 
-A OneBot V11 bot plugin framework developed in Rust.
+Kovi 是一个 OneBot V11 的插件框架，如果你想用 Rust 来开发 OneBot V11 机器人，那么 Kovi 是一个绝佳选择。
 
-You can find more documentation in the [Kovi Doc](https://threkork.github.io/kovi-doc/).
+目标是 Rust 最简单 OneBot 框架！
 
-The project is currently in beta.
+复杂的 Rust 简化写法？ Kovi 已经尽力了。
 
-More features will be added in future updates.
+本项目文档非常简单易懂，跟着来一遍保证就会了。
 
-**Note⚠️: The project is in Beta, and the following may change.**
+↓↓↓↓↓ 文档在这里
 
-**Note⚠️: The project currently only supports the OneBot V11 forward WebSocket protocol.**
+[Kovi Doc](https://threkork.github.io/kovi-doc/)
 
-The original intent behind this project is to enhance group activity, facilitate group management, and is intended for personal entertainment, learning, and communication purposes only. **No one is allowed to use this project for any illegal activities.**
+**注意⚠️，项目目前只支持 OneBot V11 正向 WebSocket 协议**
 
-## Doc
+球球啦，点个⭐⭐吧，这是一个很大的鼓励。
 
-You can find more documentation in the [Kovi Doc](https://threkork.github.io/kovi-doc/).
+还有欢迎加Q群玩。
