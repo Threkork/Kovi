@@ -6,39 +6,21 @@ use std::{
 };
 use tokio::sync::mpsc;
 
-pub trait KoviApi {
+impl RuntimeBot {
     /// 获取插件自己的路径
-    fn get_data_path(&self) -> PathBuf;
-
-    /// 卸载传入的插件
-    ///
-    /// # error
-    ///
-    /// 如果寻找不到插件，会报错 BotError::PluginNotFound
-    fn disable_plugin<T: AsRef<str> + std::marker::Send>(
-        &self,
-        plugin_name: T,
-    ) -> Result<(), BotError>;
-
-    /// 启用传入的插件
-    ///
-    /// # error
-    ///
-    /// 如果寻找不到插件，会报错 BotError::PluginNotFound
-    fn enable_plugin<T: AsRef<str>>(&self, plugin_name: T) -> Result<(), BotError>;
-
-    fn is_plugin_enable<T: AsRef<str>>(&self, plugin_name: T) -> Result<bool, BotError>;
-}
-
-impl KoviApi for RuntimeBot {
-    fn get_data_path(&self) -> PathBuf {
+    pub fn get_data_path(&self) -> PathBuf {
         let mut current_dir = std::env::current_dir().unwrap();
 
         current_dir.push(format!("data/{}", self.plugin_name));
         current_dir
     }
 
-    fn disable_plugin<T: AsRef<str> + std::marker::Send>(
+    /// 卸载传入的插件
+    ///
+    /// # error
+    ///
+    /// 如果寻找不到插件，会报错 BotError::PluginNotFound
+    pub fn disable_plugin<T: AsRef<str> + std::marker::Send>(
         &self,
         plugin_name: T,
     ) -> Result<(), BotError> {
@@ -54,7 +36,12 @@ impl KoviApi for RuntimeBot {
         disable_plugin(bot, plugin_name)
     }
 
-    fn enable_plugin<T: AsRef<str>>(&self, plugin_name: T) -> Result<(), BotError> {
+    /// 启用传入的插件
+    ///
+    /// # error
+    ///
+    /// 如果寻找不到插件，会报错 BotError::PluginNotFound
+    pub fn enable_plugin<T: AsRef<str>>(&self, plugin_name: T) -> Result<(), BotError> {
         if self.is_plugin_enable(&plugin_name)? {
             return Ok(());
         }
@@ -67,7 +54,12 @@ impl KoviApi for RuntimeBot {
         enable_plugin(bot, plugin_name, self.api_tx.clone())
     }
 
-    fn is_plugin_enable<T: AsRef<str>>(&self, plugin_name: T) -> Result<bool, BotError> {
+    /// 插件是否开启
+    ///
+    /// # error
+    ///
+    /// 如果寻找不到插件，会报错 BotError::PluginNotFound
+    pub fn is_plugin_enable<T: AsRef<str>>(&self, plugin_name: T) -> Result<bool, BotError> {
         let bot = match self.bot.upgrade() {
             Some(b) => b,
             None => return Err(BotError::RefExpired),
