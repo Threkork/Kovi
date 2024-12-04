@@ -54,7 +54,6 @@ rustls-tls = [
     "reqwest/rustls-tls-native-roots",
    
     "tokio-tungstenite/rustls-tls-native-roots",
-,
 ]
 
 [package.metadata]
