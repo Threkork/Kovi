@@ -1,13 +1,11 @@
 use super::{ApiAndOneshot, ApiReturn, Bot, Host, SendApi};
 use log::error;
 use rand::Rng;
-use std::sync::{Arc, RwLock};
+use std::sync::{RwLock, Weak};
 use tokio::sync::{mpsc, oneshot};
 
 pub mod kovi_api;
-
 pub mod onebot_api;
-
 
 /// 运行时的Bot，可以用来发送api，需要从PluginBuilder的.build_runtime_bot()构建。
 /// # Examples
@@ -27,7 +25,7 @@ pub struct RuntimeBot {
     pub host: Host,
     pub port: u16,
 
-    pub(crate) bot: Arc<RwLock<Bot>>,
+    pub(crate) bot: Weak<RwLock<Bot>>,
     pub(crate) plugin_name: String,
     pub api_tx: mpsc::Sender<ApiAndOneshot>,
 }

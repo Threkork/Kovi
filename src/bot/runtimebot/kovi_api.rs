@@ -1,50 +1,26 @@
-use tokio::sync::mpsc;
-
 use super::RuntimeBot;
-use crate::{
-    bot::ApiAndOneshot,
-    error::BotError,
-    task::{PLUGIN_NAME, TASK_MANAGER},
-    Bot, PluginBuilder,
-};
+use crate::{bot::ApiAndOneshot, error::BotError, Bot, PluginBuilder};
 use std::{
     path::PathBuf,
     sync::{Arc, RwLock},
 };
+use tokio::sync::mpsc;
 
-pub trait KoviApi {
+impl RuntimeBot {
     /// 获取插件自己的路径
-    fn get_data_path(&self) -> PathBuf;
-
-    /// 卸载传入的插件
-    ///
-    /// # error
-    ///
-    /// 如果寻找不到插件，会报错 BotError::PluginNotFound
-    fn disable_plugin<T: AsRef<str> + std::marker::Send>(
-        &self,
-        plugin_name: T,
-    ) -> Result<(), BotError>;
-
-    /// 启用传入的插件
-    ///
-    /// # error
-    ///
-    /// 如果寻找不到插件，会报错 BotError::PluginNotFound
-    fn enable_plugin<T: AsRef<str>>(&self, plugin_name: T) -> Result<(), BotError>;
-
-    fn is_plugin_enable<T: AsRef<str>>(&self, plugin_name: T) -> Result<bool, BotError>;
-}
-
-impl KoviApi for RuntimeBot {
-    fn get_data_path(&self) -> PathBuf {
+    pub fn get_data_path(&self) -> PathBuf {
         let mut current_dir = std::env::current_dir().unwrap();
 
         current_dir.push(format!("data/{}", self.plugin_name));
         current_dir
     }
 
-    fn disable_plugin<T: AsRef<str> + std::marker::Send>(
+    /// 卸载传入的插件
+    ///
+    /// # error
+    ///
+    /// 如果寻找不到插件，会报错 BotError::PluginNotFound
+    pub fn disable_plugin<T: AsRef<str> + std::marker::Send>(
         &self,
         plugin_name: T,
     ) -> Result<(), BotError> {
@@ -52,19 +28,44 @@ impl KoviApi for RuntimeBot {
             return Ok(());
         }
 
-        disable_plugin(self.bot.clone(), plugin_name)
+        let bot = match self.bot.upgrade() {
+            Some(b) => b,
+            None => return Err(BotError::RefExpired),
+        };
+
+        disable_plugin(bot, plugin_name)
     }
 
-    fn enable_plugin<T: AsRef<str>>(&self, plugin_name: T) -> Result<(), BotError> {
+    /// 启用传入的插件
+    ///
+    /// # error
+    ///
+    /// 如果寻找不到插件，会报错 BotError::PluginNotFound
+    pub fn enable_plugin<T: AsRef<str>>(&self, plugin_name: T) -> Result<(), BotError> {
         if self.is_plugin_enable(&plugin_name)? {
             return Ok(());
         }
 
-        enable_plugin(self.bot.clone(), plugin_name, self.api_tx.clone())
+        let bot = match self.bot.upgrade() {
+            Some(b) => b,
+            None => return Err(BotError::RefExpired),
+        };
+
+        enable_plugin(bot, plugin_name, self.api_tx.clone())
     }
 
-    fn is_plugin_enable<T: AsRef<str>>(&self, plugin_name: T) -> Result<bool, BotError> {
-        let bot = self.bot.read().unwrap();
+    /// 插件是否开启
+    ///
+    /// # error
+    ///
+    /// 如果寻找不到插件，会报错 BotError::PluginNotFound
+    pub fn is_plugin_enable<T: AsRef<str>>(&self, plugin_name: T) -> Result<bool, BotError> {
+        let bot = match self.bot.upgrade() {
+            Some(b) => b,
+            None => return Err(BotError::RefExpired),
+        };
+
+        let bot = bot.read().unwrap();
         let plugin_name = plugin_name.as_ref();
 
         let bot_plugin = match bot.plugins.get(plugin_name) {
@@ -76,8 +77,10 @@ impl KoviApi for RuntimeBot {
     }
 }
 
-
-fn disable_plugin<T: AsRef<str>>(bot: Arc<RwLock<Bot>>, plugin_name: T) -> Result<(), BotError> {
+pub(crate) fn disable_plugin<T: AsRef<str>>(
+    bot: Arc<RwLock<Bot>>,
+    plugin_name: T,
+) -> Result<(), BotError> {
     {
         let mut bot = bot.write().unwrap();
 
@@ -87,25 +90,7 @@ fn disable_plugin<T: AsRef<str>>(bot: Arc<RwLock<Bot>>, plugin_name: T) -> Resul
             Some(v) => v,
             None => return Err(BotError::PluginNotFound(plugin_name.to_string())),
         };
-
-
-        let plugin_name_ = Arc::new(plugin_name.to_string());
-        for listen in &bot_plugin.listen.drop {
-            let listen_clone = listen.clone();
-            let plugin_name_ = plugin_name_.clone();
-            tokio::spawn(async move {
-                PLUGIN_NAME
-                    .scope(plugin_name_, Bot::handler_drop(listen_clone))
-                    .await;
-            });
-        }
-
-        TASK_MANAGER.disable_plugin(plugin_name);
-
-        bot_plugin.enabled.send_modify(|v| {
-            *v = false;
-        });
-        bot_plugin.listen.clear();
+        bot_plugin.shutdown();
     }
 
     Ok(())

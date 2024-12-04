@@ -13,6 +13,7 @@
 pub mod bot;
 pub mod error;
 pub mod logger;
+pub mod mpsc;
 pub mod task;
 /// 提供一些方便的插件开发函数
 pub mod utils;

@@ -37,7 +37,7 @@ fn main() {
 }
 ```
 
-If this is your first run, during `build_bot`, you'll be prompted to enter some information to create the `kovi.conf.json` file, which is required for Kovi to run.
+On your first run, during `build_bot`, you'll be prompted to enter some information to create the `kovi.conf.json` file, which is required for Kovi to run.
 
 ```
 ✔ What is the type of the host of the OneBot server? · IPv4
@@ -73,7 +73,7 @@ You will see that a new `plugins/hi` directory has been created. This is also th
 
 ### Writing a Plugin
 
-Write your newly created plugin in `plugins/hi/src/lib.rs`.
+Edit your newly created plugin in `plugins/hi/src/lib.rs`.
 
 Here's a minimal example:
 
@@ -119,7 +119,7 @@ fn main() {
 
 ### More Plugin Examples
 
-#### Bot Actively Sending Messages
+#### Bot Taking Initiative to Send Messages
 
 ```rust
 use kovi::PluginBuilder as plugin;

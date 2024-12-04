@@ -1,6 +1,6 @@
 [package]
 name = "kovi"
-version = "0.10.2"
+version = "0.11.0"
 edition = "2021"
 description = "A OneBot V11 bot plugin framework"
 license = "MPL-2.0"
@@ -15,7 +15,7 @@ name = "kovi"
 path = "src/lib.rs"
 
 [dependencies]
-regex = "1.10"
+regex = "1"
 chrono = "0.4"
 dialoguer = { version = "0.11", features = ["fuzzy-select"] }
 serde = { version = "1", features = ["derive"] }
@@ -41,7 +41,7 @@ parking_lot = "0.12"
 
 
 [features]
-default = ["logger", "native-tls"]
+default = ["logger"]
 logger = ["env_logger"]
 cqstring = []
 message_sent = []
@@ -50,8 +50,11 @@ native-tls = [
     "tokio-tungstenite/native-tls-vendored",
 ]
 rustls-tls = [
+    
     "reqwest/rustls-tls-native-roots",
+   
     "tokio-tungstenite/rustls-tls-native-roots",
+,
 ]
 
 [package.metadata]

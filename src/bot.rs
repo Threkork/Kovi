@@ -1,8 +1,6 @@
 use ahash::{HashMapExt as _, RandomState};
 use dialoguer::theme::ColorfulTheme;
 use dialoguer::{Input, Select};
-use handler::InternalEvent;
-use log::{debug, error};
 use plugin_builder::Listen;
 use serde::{Deserialize, Serialize};
 use serde_json::{self, Value};
@@ -13,16 +11,28 @@ use std::future::Future;
 use std::io::Write as _;
 use std::net::{Ipv4Addr, Ipv6Addr};
 use std::pin::Pin;
-use std::{fs, net::IpAddr, process::exit, sync::Arc};
-use tokio::sync::mpsc::{self, Sender};
+use std::{fs, net::IpAddr, sync::Arc};
+use tokio::sync::mpsc::{self};
 use tokio::sync::{oneshot, watch};
-mod connect;
-mod handler;
-mod run;
+use tokio::task::JoinHandle;
+
+use crate::error::{BotBuildError, BotError};
+use crate::task::TASK_MANAGER;
+pub(crate) mod connect;
+pub(crate) mod handler;
+pub(crate) mod run;
 
 pub mod message;
 pub mod plugin_builder;
 pub mod runtimebot;
+
+tokio::task_local! {
+    pub static PLUGIN_BUILDER: crate::PluginBuilder;
+}
+
+tokio::task_local! {
+    pub static PLUGIN_NAME: Arc<String>;
+}
 
 /// kovi的配置
 #[derive(Deserialize, Serialize)]
@@ -53,16 +63,28 @@ impl KoviConf {
 
 type KoviAsyncFn = dyn Fn() -> Pin<Box<dyn Future<Output = ()> + Send>> + Send + Sync;
 
+impl Drop for Bot {
+    fn drop(&mut self) {
+        for i in self.run_abort.iter() {
+            i.abort();
+        }
+    }
+}
+
 /// bot结构体
 #[derive(Clone)]
 pub struct Bot {
     pub information: BotInformation,
     pub plugins: HashMap<String, BotPlugin, RandomState>,
+    pub(crate) run_abort: Vec<tokio::task::AbortHandle>,
 }
 
 #[derive(Clone)]
 pub struct BotPlugin {
+    pub(crate) enable_on_startup: bool,
     pub(crate) enabled: watch::Sender<bool>,
+
+    pub name: String,
     pub version: String,
     pub(crate) main: Arc<KoviAsyncFn>,
     pub(crate) listen: Listen,
@@ -99,7 +121,6 @@ impl Display for Host {
         }
     }
 }
-
 
 impl Server {
     pub fn new(host: Host, port: u16, access_token: String, secure: bool) -> Self {
@@ -158,6 +179,43 @@ impl SendApi {
     }
 }
 
+impl BotPlugin {
+    fn shutdown(&mut self) -> JoinHandle<()> {
+        log::info!(
+            "Plugin '{}' is dropping. 插件 '{}' 正在做清理。",
+            self.name,
+            self.name
+        );
+
+        let plugin_name_ = Arc::new(self.name.clone());
+
+        let mut task_vec = Vec::new();
+
+        for listen in &self.listen.drop {
+            let listen_clone = listen.clone();
+            let plugin_name_ = plugin_name_.clone();
+            let task = tokio::spawn(async move {
+                PLUGIN_NAME
+                    .scope(plugin_name_, Bot::handler_drop(listen_clone))
+                    .await;
+            });
+            task_vec.push(task);
+        }
+
+        TASK_MANAGER.disable_plugin(&self.name);
+
+        self.enabled.send_modify(|v| {
+            *v = false;
+        });
+        self.listen.clear();
+        tokio::spawn(async move {
+            for task in task_vec {
+                let _ = task.await;
+            }
+        })
+    }
+}
+
 impl Bot {
     /// 构建一个bot实例
     /// # Examples
@@ -183,6 +241,7 @@ impl Bot {
                 server: conf.server,
             },
             plugins: HashMap::<_, _, RandomState>::new(),
+            run_abort: Vec::new(),
         }
     }
 
@@ -194,7 +253,9 @@ impl Bot {
         let version = String::from(version);
         let (tx, _rx) = watch::channel(true);
         let bot_plugin = BotPlugin {
+            enable_on_startup: true,
             enabled: tx,
+            name: name.clone(),
             version,
             main,
             listen: Listen::default(),
@@ -202,8 +263,7 @@ impl Bot {
         self.plugins.insert(name, bot_plugin);
     }
 
-
-    pub fn load_local_conf() -> KoviConf {
+    pub fn load_local_conf() -> Result<KoviConf, BotBuildError> {
         //检测文件是kovi.conf.json还是kovi.conf.toml
         let kovi_conf_file_exist = fs::metadata("kovi.conf.toml").is_ok();
 
@@ -212,32 +272,18 @@ impl Bot {
                 Ok(v) => match toml::from_str(&v) {
                     Ok(conf) => conf,
                     Err(err) => {
-                        eprintln!(
-                            "Failed to parse TOML:\n{}\nPlease reload the config file",
-                            err
-                        );
-                        match config_file_write_and_return() {
-                            Ok(conf) => conf,
-                            Err(err) => {
-                                eprintln!("Failed to create config file: {}", err);
-                                exit(1);
-                            }
-                        }
+                        eprintln!("Configuration file parsing error: {}", err);
+                        config_file_write_and_return()
+                            .map_err(|e| BotBuildError::FileCreateError(e.to_string()))?
                     }
                 },
                 Err(err) => {
-                    eprintln!("Failed to read TOML file: {}", err);
-                    exit(1);
+                    return Err(BotBuildError::FileReadError(err.to_string()));
                 }
             }
         } else {
-            match config_file_write_and_return() {
-                Ok(conf) => conf,
-                Err(err) => {
-                    eprintln!("Failed to create config file: {}", err);
-                    exit(1);
-                }
-            }
+            config_file_write_and_return()
+                .map_err(|e| BotBuildError::FileCreateError(e.to_string()))?
         };
 
         unsafe {
@@ -250,7 +296,56 @@ impl Bot {
             }
         }
 
-        conf_json
+        Ok(conf_json)
+    }
+}
+
+impl Bot {
+    pub fn set_all_plugin_startup(mut self, enabled: bool) -> Self {
+        for plugin in self.plugins.values_mut() {
+            plugin.enable_on_startup = enabled
+        }
+        self
+    }
+
+    pub fn set_all_plugin_startup_ref(&mut self, enabled: bool) {
+        for plugin in self.plugins.values_mut() {
+            plugin.enable_on_startup = enabled
+        }
+    }
+
+    pub fn set_plugin_startup<T: AsRef<str>>(
+        mut self,
+        name: T,
+        enabled: bool,
+    ) -> Result<Self, BotError> {
+        let name = name.as_ref();
+        if let Some(n) = self.plugins.get_mut(name) {
+            n.enable_on_startup = enabled;
+            Ok(self)
+        } else {
+            Err(BotError::PluginNotFound(format!(
+                "Plugin {} not found",
+                name
+            )))
+        }
+    }
+
+    pub fn set_plugin_startup_ref<T: AsRef<str>>(
+        &mut self,
+        name: T,
+        enabled: bool,
+    ) -> Result<(), BotError> {
+        let name = name.as_ref();
+        if let Some(n) = self.plugins.get_mut(name) {
+            n.enable_on_startup = enabled;
+            Ok(())
+        } else {
+            Err(BotError::PluginNotFound(format!(
+                "Plugin {} not found",
+                name
+            )))
+        }
     }
 }
 
@@ -263,7 +358,7 @@ fn config_file_write_and_return() -> Result<KoviConf, std::io::Error> {
     }
 
     let host_type: HostType = {
-        let items = vec!["IPv4", "IPv6", "Domain"];
+        let items = ["IPv4", "IPv6", "Domain"];
         let select = Select::with_theme(&ColorfulTheme::default())
             .with_prompt("What is the type of the host of the OneBot server?")
             .items(&items)
@@ -327,7 +422,7 @@ fn config_file_write_and_return() -> Result<KoviConf, std::io::Error> {
 
     // 是否查看更多可选选项
     let more: bool = {
-        let items = vec!["No", "Yes"];
+        let items = ["No", "Yes"];
         let select = Select::with_theme(&ColorfulTheme::default())
             .with_prompt("Do you want to view more optional options?")
             .items(&items)
@@ -399,25 +494,17 @@ fn config_file_write_and_return() -> Result<KoviConf, std::io::Error> {
     Ok(config)
 }
 
-
-pub(crate) async fn exit_and_eprintln<E>(e: E, event_tx: Sender<InternalEvent>)
-where
-    E: std::fmt::Display,
-{
-    error!("{e}\nBot connection failed, please check the configuration and restart KoviBot");
-    if let Err(e) = event_tx
-        .send(InternalEvent::KoviEvent(handler::KoviEvent::Drop))
-        .await
-    {
-        debug!("通道关闭,{e}")
-    };
-}
-
 #[macro_export]
 macro_rules! build_bot {
     ($( $plugin:ident ),* $(,)* ) => {
         {
-            let conf = kovi::bot::Bot::load_local_conf();
+            let conf = match kovi::bot::Bot::load_local_conf() {
+                Ok(c) => c,
+                Err(e) => {
+                    eprintln!("Error loading config: {}", e);
+                    panic!("Failed to load config");
+                }
+            };
             kovi::logger::try_set_logger();
             let mut bot = kovi::bot::Bot::build(conf);
 
@@ -431,7 +518,6 @@ macro_rules! build_bot {
         }
     };
 }
-
 
 #[test]
 fn build_bot() {
