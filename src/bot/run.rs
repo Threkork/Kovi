@@ -119,10 +119,8 @@ impl Bot {
         let bot_ = bot.read().unwrap();
         let main_job_map = bot_.plugins.borrow();
 
-        let (main_admin, admin, host, port) = {
+        let (host, port) = {
             (
-                bot_.information.main_admin,
-                bot_.information.admin.clone(),
                 bot_.information.server.host.clone(),
                 bot_.information.server.port,
             )
@@ -135,8 +133,6 @@ impl Bot {
             let plugin_builder = PluginBuilder::new(
                 name.clone(),
                 bot.clone(),
-                main_admin,
-                admin.clone(),
                 host.clone(),
                 port,
                 api_tx.clone(),

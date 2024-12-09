@@ -7,7 +7,7 @@ use tokio::sync::{mpsc, oneshot};
 pub mod kovi_api;
 pub mod onebot_api;
 
-/// 运行时的Bot，可以用来发送api，需要从PluginBuilder的.build_runtime_bot()构建。
+/// 运行时的Bot，可以用来发送api，需要从PluginBuilder的.get_runtime_bot()获取。
 /// # Examples
 /// ```
 /// let bot = PluginBuilder::get_runtime_bot();
@@ -17,11 +17,6 @@ pub mod onebot_api;
 /// ```
 #[derive(Clone)]
 pub struct RuntimeBot {
-    /// 主管理员
-    pub main_admin: i64,
-    /// 副管理员，不包含主管理员
-    pub admin: Vec<i64>,
-
     pub host: Host,
     pub port: u16,
 

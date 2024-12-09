@@ -263,7 +263,7 @@ impl Bot {
                 let user_id = e.user_id;
                 let admin_vec = {
                     let bot = bot.read().unwrap();
-                    let mut admin_vec = bot.information.admin.clone();
+                    let mut admin_vec = bot.information.deputy_admins.clone();
                     admin_vec.push(bot.information.main_admin);
                     admin_vec
                 };

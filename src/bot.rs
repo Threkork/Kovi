@@ -75,26 +75,34 @@ impl Drop for Bot {
 #[derive(Clone)]
 pub struct Bot {
     pub information: BotInformation,
-    pub plugins: HashMap<String, BotPlugin, RandomState>,
+    pub(crate) plugins: HashMap<String, BotPlugin, RandomState>,
     pub(crate) run_abort: Vec<tokio::task::AbortHandle>,
 }
 
 #[derive(Clone)]
-pub struct BotPlugin {
+pub(crate) struct BotPlugin {
     pub(crate) enable_on_startup: bool,
     pub(crate) enabled: watch::Sender<bool>,
 
-    pub name: String,
-    pub version: String,
+    pub(crate) name: String,
+    pub(crate) version: String,
     pub(crate) main: Arc<KoviAsyncFn>,
     pub(crate) listen: Listen,
+}
+
+#[derive(Clone)]
+pub struct PluginInfo {
+    pub name: String,
+    pub version: String,
+    pub enabled: bool,
+    pub enable_on_startup: bool,
 }
 
 /// bot信息结构体
 #[derive(Debug, Clone)]
 pub struct BotInformation {
     pub main_admin: i64,
-    pub admin: Vec<i64>,
+    pub deputy_admins: Vec<i64>,
     pub server: Server,
 }
 /// server信息
@@ -237,7 +245,7 @@ impl Bot {
         Bot {
             information: BotInformation {
                 main_admin: conf.config.main_admin,
-                admin: conf.config.admins,
+                deputy_admins: conf.config.admins,
                 server: conf.server,
             },
             plugins: HashMap::<_, _, RandomState>::new(),

@@ -66,8 +66,6 @@ impl PluginBuilder {
     pub(crate) fn new(
         name: String,
         bot: Arc<RwLock<Bot>>,
-        main_admin: i64,
-        admin: Vec<i64>,
         host: Host,
         port: u16,
         api_tx: mpsc::Sender<ApiAndOneshot>,
@@ -75,8 +73,6 @@ impl PluginBuilder {
         let bot_weak = Arc::downgrade(&bot);
 
         let runtime_bot = Arc::new(RuntimeBot {
-            main_admin,
-            admin,
             host,
             port,
 
@@ -492,8 +488,6 @@ mod on_is_ture {
         let p = PluginBuilder::new(
             "some".to_string(),
             bot.clone(),
-            123,
-            vec![],
             crate::bot::Host::IpAddr(IpAddr::V4(Ipv4Addr::new(1, 1, 1, 1))),
             8081,
             api_tx,
