@@ -7,6 +7,8 @@ use tokio::sync::{mpsc, oneshot};
 pub mod kovi_api;
 pub mod onebot_api;
 
+pub use kovi_api::SetAdmin;
+
 /// 运行时的Bot，可以用来发送api，需要从PluginBuilder的.get_runtime_bot()获取。
 /// # Examples
 /// ```
