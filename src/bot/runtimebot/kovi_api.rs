@@ -11,10 +11,16 @@ use std::{
 use tokio::sync::mpsc;
 
 pub enum SetAdmin {
+    /// 增加一个管理员
     Add(i64),
+    /// 增加多个管理员
     Adds(Vec<i64>),
+    /// 移除一个管理员
     Remove(i64),
+    /// 移除多个管理员
     Removes(Vec<i64>),
+    /// 替换管理员成此管理员
+    Changes(Vec<i64>),
 }
 
 impl RuntimeBot {
@@ -64,6 +70,7 @@ impl RuntimeBot {
             SetAdmin::Adds(ids) => bot.information.deputy_admins.extend(ids),
             SetAdmin::Remove(id) => bot.information.deputy_admins.retain(|&x| x != id),
             SetAdmin::Removes(ids) => bot.information.deputy_admins.retain(|&x| !ids.contains(&x)),
+            SetAdmin::Changes(ids) => bot.information.deputy_admins = ids,
         }
 
         Ok(())
