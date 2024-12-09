@@ -104,6 +104,32 @@ impl PluginBuilder {
 }
 
 impl PluginBuilder {
+    // pub fn on_test<F>(handler: F)
+    // where
+    //     F: AsyncFn(Arc<AllMsgEvent>) -> () + Send + Sync + 'static,
+    //     F(..): Send + Sync + 'static,
+    // {
+    //     PLUGIN_BUILDER.with(|p| {
+    //         let mut bot = p.bot.write().unwrap();
+    //         let bot_plugin = bot.plugins.get_mut(&p.runtime_bot.plugin_name).unwrap();
+
+    //         let handler = Arc::new(handler);
+
+    //         let listen_fn = ListenMsgFn::Msg(Arc::new({
+    //             move |event| {
+    //                 Box::pin({
+    //                     let handler = handler.clone();
+    //                     async move {
+    //                         handler(event).await;
+    //                     }
+    //                 })
+    //             }
+    //         }));
+
+    //         bot_plugin.listen.msg.push(Arc::new(listen_fn));
+    //     })
+    // }
+
     /// 注册消息处理函数。
     ///
     /// 注册一个处理程序，用于处理接收到的消息事件（`AllMsgEvent`）。
@@ -374,7 +400,6 @@ impl PluginBuilder {
             plugin.enabled.subscribe()
         };
         tokio::spawn(PLUGIN_NAME.scope(name.clone(), async move {
-
             tokio::select! {
                 _ = async {
                         loop {
