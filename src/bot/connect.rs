@@ -272,7 +272,7 @@ async fn connection_failed_eprintln<E>(e: E, event_tx: Sender<InternalEvent>)
 where
     E: Display,
 {
-    log::error!("{e}\nBot connection failed, please check the configuration and restart KoviBot");
+    log::error!("{e}\nBot connection failed, please check the configuration and restart.");
     if let Err(e) = event_tx
         .send(InternalEvent::KoviEvent(
             crate::bot::handler::KoviEvent::Drop,

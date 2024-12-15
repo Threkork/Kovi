@@ -237,6 +237,7 @@ impl Bot {
     ///         access_token: "",
     ///     },
     ///     false,
+    ///     None,
     /// );
     /// let bot = Bot::build(conf);
     /// bot.run()
@@ -253,6 +254,7 @@ impl Bot {
         }
     }
 
+    /// 挂载插件的启动函数。
     pub fn mount_main<T>(&mut self, name: T, version: T, main: Arc<KoviAsyncFn>)
     where
         String: From<T>,
@@ -271,6 +273,7 @@ impl Bot {
         self.plugins.insert(name, bot_plugin);
     }
 
+    /// 读取本地Kovi.conf.toml文件
     pub fn load_local_conf() -> Result<KoviConf, BotBuildError> {
         //检测文件是kovi.conf.json还是kovi.conf.toml
         let kovi_conf_file_exist = fs::metadata("kovi.conf.toml").is_ok();
