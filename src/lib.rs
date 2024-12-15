@@ -1,4 +1,4 @@
-#![feature(return_type_notation, async_closure)]
+#![feature(return_type_notation, async_fn_traits)]
 
 //! # Kovi
 //!

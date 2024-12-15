@@ -106,8 +106,8 @@ impl PluginBuilder {
 impl PluginBuilder {
     // pub fn on_test<F>(handler: F)
     // where
-    //     F: AsyncFn(Arc<AllMsgEvent>) -> () + Send + Sync + 'static,
-    //     F(..): Send + Sync + 'static,
+    //     F: AsyncFn(Arc<AllMsgEvent>) + Send + Sync + 'static,
+    //     F(..): Send,
     // {
     //     PLUGIN_BUILDER.with(|p| {
     //         let mut bot = p.bot.write().unwrap();
@@ -115,15 +115,13 @@ impl PluginBuilder {
 
     //         let handler = Arc::new(handler);
 
-    //         let listen_fn = ListenMsgFn::Msg(Arc::new({
-    //             move |event| {
-    //                 Box::pin({
-    //                     let handler = handler.clone();
-    //                     async move {
-    //                         handler(event).await;
-    //                     }
-    //                 })
-    //             }
+    //         let listen_fn = ListenMsgFn::Msg(Arc::new(move |event| {
+    //             Box::pin({
+    //                 let handler = handler.clone();
+    //                 async move {
+    //                     handler(event).await;
+    //                 }
+    //             })
     //         }));
 
     //         bot_plugin.listen.msg.push(Arc::new(listen_fn));
@@ -145,15 +143,13 @@ impl PluginBuilder {
 
             let handler = Arc::new(handler);
 
-            let listen_fn = ListenMsgFn::Msg(Arc::new({
-                move |event| {
-                    Box::pin({
-                        let handler = handler.clone();
-                        async move {
-                            handler(event).await;
-                        }
-                    })
-                }
+            let listen_fn = ListenMsgFn::Msg(Arc::new(move |event| {
+                Box::pin({
+                    let handler = handler.clone();
+                    async move {
+                        handler(event).await;
+                    }
+                })
             }));
 
             bot_plugin.listen.msg.push(Arc::new(listen_fn));
