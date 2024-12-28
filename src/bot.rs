@@ -403,19 +403,22 @@ impl Bot {
             .parse::<toml_edit::DocumentMut>()
             .unwrap_or_else(|_| toml_edit::DocumentMut::new());
 
-        let mut plugin_status = HashMap::new();
-        for (name, plugin) in self.plugins.iter() {
-            plugin_status.insert(name.clone(), plugin.enable_on_startup);
-        }
+        #[cfg(feature = "save_plugin_status")]
+        {
+            let mut plugin_status = HashMap::new();
+            for (name, plugin) in self.plugins.iter() {
+                plugin_status.insert(name.clone(), plugin.enable_on_startup);
+            }
 
-        // 确保 "plugin" 存在
-        if !doc.contains_key("plugin") {
-            doc["plugin"] = toml_edit::table();
-        }
+            // 确保 "plugin" 存在
+            if !doc.contains_key("plugin") {
+                doc["plugin"] = toml_edit::table();
+            }
 
-        // 更新 "plugin" 插件状态
-        for (name, status) in plugin_status {
-            doc["plugin"][name] = toml_edit::value(status);
+            // 更新 "plugin" 插件状态
+            for (name, status) in plugin_status {
+                doc["plugin"][name] = toml_edit::value(status);
+            }
         }
 
         // 确保 "config" 存在
