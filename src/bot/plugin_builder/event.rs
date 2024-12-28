@@ -4,7 +4,6 @@ use serde_json::{self, Value};
 
 pub mod msg_event;
 
-
 #[derive(Debug, Copy, Clone)]
 pub enum Sex {
     Male,
@@ -29,7 +28,6 @@ pub struct Anonymous {
     pub name: String,
     pub flag: String,
 }
-
 
 #[derive(Debug, Clone)]
 pub struct AllNoticeEvent {

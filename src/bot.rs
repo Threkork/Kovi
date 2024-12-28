@@ -35,13 +35,20 @@ tokio::task_local! {
 }
 
 /// kovi的配置
-#[derive(Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct KoviConf {
     pub config: Config,
     pub server: Server,
+    pub plugin: Option<HashMap<String, bool>>,
 }
 
-#[derive(Deserialize, Serialize)]
+impl AsRef<KoviConf> for KoviConf {
+    fn as_ref(&self) -> &KoviConf {
+        self
+    }
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct Config {
     pub main_admin: i64,
     pub admins: Vec<i64>,
@@ -57,6 +64,7 @@ impl KoviConf {
                 debug,
             },
             server,
+            plugin: None,
         }
     }
 }
@@ -189,11 +197,7 @@ impl SendApi {
 
 impl BotPlugin {
     fn shutdown(&mut self) -> JoinHandle<()> {
-        log::info!(
-            "Plugin '{}' is dropping. 插件 '{}' 正在做清理。",
-            self.name,
-            self.name
-        );
+        log::debug!("Plugin '{}' is dropping. ", self.name,);
 
         let plugin_name_ = Arc::new(self.name.clone());
 
@@ -242,12 +246,16 @@ impl Bot {
     /// let bot = Bot::build(conf);
     /// bot.run()
     /// ```
-    pub fn build(conf: KoviConf) -> Bot {
+    pub fn build<C>(conf: C) -> Bot
+    where
+        C: AsRef<KoviConf>,
+    {
+        let conf = conf.as_ref();
         Bot {
             information: BotInformation {
                 main_admin: conf.config.main_admin,
-                deputy_admins: conf.config.admins,
-                server: conf.server,
+                deputy_admins: conf.config.admins.clone(),
+                server: conf.server.clone(),
             },
             plugins: HashMap::<_, _, RandomState>::new(),
             run_abort: Vec::new(),
@@ -312,6 +320,30 @@ impl Bot {
 }
 
 impl Bot {
+    /// 使用KoviConf设置插件在Bot启动时的状态
+    pub fn set_plugin_startup_use_conf(mut self, conf: &KoviConf) -> Self {
+        for (name, plugin) in self.plugins.iter_mut() {
+            if let Some(plugins) = &conf.plugin {
+                if let Some(enabled) = plugins.get(name) {
+                    plugin.enable_on_startup = *enabled;
+                }
+            }
+        }
+        self
+    }
+
+    /// 使用KoviConf设置插件在Bot启动时的状态
+    pub fn set_plugin_startup_use_conf_ref(&mut self, conf: &KoviConf) {
+        for (name, plugin) in self.plugins.iter_mut() {
+            if let Some(plugins) = &conf.plugin {
+                if let Some(enabled) = plugins.get(name) {
+                    plugin.enable_on_startup = *enabled;
+                }
+            }
+        }
+    }
+
+    /// 设置全部插件在Bot启动时的状态
     pub fn set_all_plugin_startup(mut self, enabled: bool) -> Self {
         for plugin in self.plugins.values_mut() {
             plugin.enable_on_startup = enabled
@@ -319,12 +351,14 @@ impl Bot {
         self
     }
 
+    /// 设置全部插件在Bot启动时的状态
     pub fn set_all_plugin_startup_ref(&mut self, enabled: bool) {
         for plugin in self.plugins.values_mut() {
             plugin.enable_on_startup = enabled
         }
     }
 
+    /// 设置单个插件在Bot启动时的状态
     pub fn set_plugin_startup<T: AsRef<str>>(
         mut self,
         name: T,
@@ -342,6 +376,7 @@ impl Bot {
         }
     }
 
+    /// 设置单个插件在Bot启动时的状态
     pub fn set_plugin_startup_ref<T: AsRef<str>>(
         &mut self,
         name: T,
@@ -357,6 +392,35 @@ impl Bot {
                 name
             )))
         }
+    }
+
+    #[cfg(feature = "save_plugin_status")]
+    pub(crate) fn save_plugin_status(&self) {
+        let file_path = "kovi.conf.toml";
+        let existing_content = fs::read_to_string(file_path).unwrap_or_default();
+
+        let mut doc = existing_content
+            .parse::<toml_edit::DocumentMut>()
+            .unwrap_or_else(|_| toml_edit::DocumentMut::new());
+
+        let mut plugin_status = HashMap::new();
+        for (name, plugin) in self.plugins.iter() {
+            plugin_status.insert(name.clone(), plugin.enable_on_startup);
+        }
+
+        // 确保 "plugin" 存在
+        if !doc.contains_key("plugin") {
+            doc["plugin"] = toml_edit::table();
+        }
+
+        // 更新 "plugin" 插件状态
+        for (name, status) in plugin_status {
+            doc["plugin"][name] = toml_edit::value(status);
+        }
+
+        let file = fs::File::create(file_path).unwrap();
+        let mut writer = std::io::BufWriter::new(file);
+        writer.write_all(doc.to_string().as_bytes()).unwrap();
     }
 }
 
@@ -517,7 +581,7 @@ macro_rules! build_bot {
                 }
             };
             kovi::logger::try_set_logger();
-            let mut bot = kovi::bot::Bot::build(conf);
+            let mut bot = kovi::bot::Bot::build(&conf);
 
             $(
                 let (crate_name, crate_version) = $plugin::__kovi_get_plugin_info();
@@ -525,6 +589,7 @@ macro_rules! build_bot {
                 bot.mount_main(crate_name, crate_version, std::sync::Arc::new($plugin::__kovi_run_async_plugin));
             )*
 
+            bot.set_plugin_startup_use_conf_ref(&conf);
             bot
         }
     };

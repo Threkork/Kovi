@@ -10,7 +10,6 @@ use log::error;
 use std::{
     borrow::Borrow,
     future::Future,
-    process::exit,
     sync::{Arc, LazyLock, RwLock},
 };
 use tokio::{
@@ -72,6 +71,7 @@ impl Bot {
                 return;
             }
 
+            {
             let mut bot_write = bot.write().unwrap();
 
             // drop检测
@@ -86,8 +86,9 @@ impl Bot {
                 let api_tx = api_tx.clone();
                 async move { Self::run_mains(bot, api_tx) }
             });
+            }
 
-            drop(bot_write);
+
 
             let mut drop_task = None;
             //处理事件，每个事件都会来到这里
@@ -189,9 +190,6 @@ impl ExitCheck {
             Self::await_exit_signal().await;
 
             let _ = tx.send(true);
-
-            Self::await_exit_signal().await;
-            exit(1);
         });
 
         ExitCheck {

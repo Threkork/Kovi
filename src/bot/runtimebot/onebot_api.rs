@@ -25,7 +25,6 @@ pub enum AddRequestType<'a> {
     SubType(&'a str),
 }
 
-
 /// Kovi提供解析过的返回值的api
 impl RuntimeBot {
     ///发送群组消息, 并返回消息ID
@@ -54,7 +53,6 @@ impl RuntimeBot {
         let group_id = &group_id;
 
         info!("[send] [to group {group_id}]: {}", msg.to_human_string());
-
 
         let api_rx = send_api_request(&self.api_tx, send_api);
 
@@ -201,7 +199,6 @@ impl RuntimeBot {
             }
         }
     }
-
 
     /// 是否能发送语音
     pub fn can_send_record(&self) -> impl std::future::Future<Output = Result<bool, ApiReturn>> {
@@ -427,7 +424,6 @@ impl RuntimeBot {
             "None",
         );
 
-
         send_api_request_with_forget(&self.api_tx, send_api);
     }
     /// 群组匿名用户禁言
@@ -450,7 +446,6 @@ impl RuntimeBot {
             "None",
         );
 
-
         send_api_request_with_forget(&self.api_tx, send_api);
     }
 
@@ -470,7 +465,6 @@ impl RuntimeBot {
             }),
             "None",
         );
-
 
         send_api_request_with_forget(&self.api_tx, send_api);
     }
@@ -514,7 +508,6 @@ impl RuntimeBot {
             "None",
         );
 
-
         send_api_request_with_forget(&self.api_tx, send_api);
     }
 
@@ -538,7 +531,6 @@ impl RuntimeBot {
             "None",
         );
 
-
         send_api_request_with_forget(&self.api_tx, send_api);
     }
 
@@ -559,7 +551,6 @@ impl RuntimeBot {
             "None",
         );
 
-
         send_api_request_with_forget(&self.api_tx, send_api);
     }
 
@@ -579,7 +570,6 @@ impl RuntimeBot {
             }),
             "None",
         );
-
 
         send_api_request_with_forget(&self.api_tx, send_api);
     }
@@ -604,7 +594,6 @@ impl RuntimeBot {
             "None",
         );
 
-
         send_api_request_with_forget(&self.api_tx, send_api);
     }
     /// 处理加好友请求
@@ -626,7 +615,6 @@ impl RuntimeBot {
             }),
             "None",
         );
-
 
         send_api_request_with_forget(&self.api_tx, send_api);
     }
@@ -662,7 +650,6 @@ impl RuntimeBot {
             }),
             "None",
         );
-
 
         send_api_request_with_forget(&self.api_tx, send_api);
     }

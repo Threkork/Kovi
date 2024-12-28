@@ -65,7 +65,6 @@ pub struct AllMsgEvent {
     api_tx: mpsc::Sender<ApiAndOneshot>,
 }
 
-
 impl AllMsgEvent {
     pub(crate) fn new(
         api_tx: mpsc::Sender<ApiAndOneshot>,
@@ -139,7 +138,6 @@ impl AllMsgEvent {
                 let anonymous = temp_object["anonymous"].clone();
                 Some(serde_json::from_value(anonymous).unwrap())
             };
-
 
         let text = {
             let mut text_vec = Vec::new();
@@ -301,7 +299,6 @@ impl AllMsgEvent {
         send_api_request_with_forget(&self.api_tx, send_msg);
     }
 
-
     #[cfg(feature = "cqstring")]
     /// 快速回复消息，并且**kovi不进行解析，直接发送此字符串**
     pub fn reply_text<T>(&self, msg: T)
@@ -322,7 +319,6 @@ impl AllMsgEvent {
         info!("[reply] [to {message_type}{group_id} {nickname} {id}]: {msg}");
         send_api_request_with_forget(&self.api_tx, send_msg);
     }
-
 
     /// 便捷获取文本，如果没有文本则会返回空字符串，如果只需要借用，请使用 `borrow_text()`
     pub fn get_text(&self) -> String {

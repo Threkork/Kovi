@@ -41,10 +41,10 @@ parking_lot = "0.12"
 
 
 [features]
-default = ["logger", "save_plugin_statu"]
+default = ["logger","save_plugin_status"]
 logger = ["env_logger"]
+save_plugin_status = []
 message_sent = []
-save_plugin_statu = []
 cqstring = []
 native-tls = [
     "reqwest/native-tls-vendored",
