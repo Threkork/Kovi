@@ -394,8 +394,8 @@ impl Bot {
         }
     }
 
-    #[cfg(feature = "save_plugin_status")]
-    pub(crate) fn save_plugin_status(&self) {
+    #[cfg(feature = "save_bot_status")]
+    pub(crate) fn save_bot_status(&self) {
         let file_path = "kovi.conf.toml";
         let existing_content = fs::read_to_string(file_path).unwrap_or_default();
 
@@ -417,6 +417,21 @@ impl Bot {
         for (name, status) in plugin_status {
             doc["plugin"][name] = toml_edit::value(status);
         }
+
+        // 确保 "config" 存在
+        if !doc.contains_key("config") {
+            doc["config"] = toml_edit::table();
+        }
+
+        // 更新 "config" 中的 admin 信息
+        doc["config"]["main_admin"] = toml_edit::value(self.information.main_admin);
+        doc["config"]["admins"] = toml_edit::Item::Value(toml_edit::Value::Array(
+            self.information
+                .deputy_admins
+                .iter()
+                .map(|&x| toml_edit::Value::from(x))
+                .collect(),
+        ));
 
         let file = fs::File::create(file_path).unwrap();
         let mut writer = std::io::BufWriter::new(file);

@@ -37,8 +37,8 @@ impl Bot {
             let mut bot_write = bot.write().unwrap();
             match event {
                 KoviEvent::Drop => {
-                    #[cfg(feature = "save_plugin_status")]
-                    bot_write.save_plugin_status();
+                    #[cfg(feature = "save_bot_status")]
+                    bot_write.save_bot_status();
                     let mut task_vec = Vec::new();
                     for plugin in bot_write.plugins.values_mut() {
                         task_vec.push(plugin.shutdown());
