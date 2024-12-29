@@ -37,7 +37,7 @@ impl Bot {
             let mut bot_write = bot.write().unwrap();
             match event {
                 KoviEvent::Drop => {
-                    #[cfg(feature = "save_bot_status")]
+                    #[cfg(any(feature = "save_plugin_status", feature = "save_bot_admin"))]
                     bot_write.save_bot_status();
                     let mut task_vec = Vec::new();
                     for plugin in bot_write.plugins.values_mut() {
@@ -148,6 +148,12 @@ impl Bot {
             OneBotEvent::Msg(e) => {
                 let e = Arc::new(e);
                 for (name, plugin) in bot_read.plugins.iter() {
+                    // 判断是否黑白名单
+                    #[cfg(feature = "plugin-access-control")]
+                    if is_access(plugin, &e) {
+                        continue;
+                    }
+
                     let name_ = Arc::new(name.clone());
 
                     for listen in &plugin.listen.msg {
@@ -341,5 +347,30 @@ impl Bot {
             "Bot connection successful，Nickname:{},ID:{}",
             self_name, self_id
         );
+    }
+}
+
+#[cfg(feature = "plugin-access-control")]
+fn is_access(plugin: &BotPlugin, event: &AllMsgEvent) -> bool {
+    if !plugin.access_control {
+        return true;
+    }
+
+    let access_list = &plugin.access_list;
+    let in_group = event.is_group();
+
+    match (plugin.list_mode, in_group) {
+        (AccessControlMode::WhiteList, true) => access_list
+            .groups
+            .contains(event.group_id.as_ref().unwrap()),
+        (AccessControlMode::WhiteList, false) => {
+            access_list.friends.contains(&event.sender.user_id)
+        }
+        (AccessControlMode::BlackList, true) => !access_list
+            .groups
+            .contains(event.group_id.as_ref().unwrap()),
+        (AccessControlMode::BlackList, false) => {
+            !access_list.friends.contains(&event.sender.user_id)
+        }
     }
 }

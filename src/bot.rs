@@ -18,6 +18,9 @@ use tokio::task::JoinHandle;
 
 use crate::error::{BotBuildError, BotError};
 use crate::task::TASK_MANAGER;
+
+pub use crate::bot::runtimebot::kovi_api::AccessControlMode;
+
 pub(crate) mod connect;
 pub(crate) mod handler;
 pub(crate) mod run;
@@ -96,6 +99,20 @@ pub(crate) struct BotPlugin {
     pub(crate) version: String,
     pub(crate) main: Arc<KoviAsyncFn>,
     pub(crate) listen: Listen,
+
+    #[cfg(feature = "plugin-access-control")]
+    pub(crate) access_control: bool,
+    #[cfg(feature = "plugin-access-control")]
+    pub(crate) list_mode: AccessControlMode,
+    #[cfg(feature = "plugin-access-control")]
+    pub(crate) access_list: AccessList,
+}
+
+#[cfg(feature = "plugin-access-control")]
+#[derive(Clone, Debug, Default)]
+pub(crate) struct AccessList {
+    pub(crate) friends: Vec<i64>,
+    pub(crate) groups: Vec<i64>,
 }
 
 #[derive(Clone)]
@@ -277,6 +294,13 @@ impl Bot {
             version,
             main,
             listen: Listen::default(),
+
+            #[cfg(feature = "plugin-access-control")]
+            access_control: false,
+            #[cfg(feature = "plugin-access-control")]
+            list_mode: AccessControlMode::WhiteList,
+            #[cfg(feature = "plugin-access-control")]
+            access_list: AccessList::default(),
         };
         self.plugins.insert(name, bot_plugin);
     }
@@ -322,6 +346,9 @@ impl Bot {
 impl Bot {
     /// 使用KoviConf设置插件在Bot启动时的状态
     pub fn set_plugin_startup_use_conf(mut self, conf: &KoviConf) -> Self {
+        if conf.plugin.is_none() {
+            return self;
+        }
         for (name, plugin) in self.plugins.iter_mut() {
             if let Some(plugins) = &conf.plugin {
                 if let Some(enabled) = plugins.get(name) {
@@ -334,6 +361,9 @@ impl Bot {
 
     /// 使用KoviConf设置插件在Bot启动时的状态
     pub fn set_plugin_startup_use_conf_ref(&mut self, conf: &KoviConf) {
+        if conf.plugin.is_none() {
+            return;
+        }
         for (name, plugin) in self.plugins.iter_mut() {
             if let Some(plugins) = &conf.plugin {
                 if let Some(enabled) = plugins.get(name) {
@@ -394,7 +424,7 @@ impl Bot {
         }
     }
 
-    #[cfg(feature = "save_bot_status")]
+    #[cfg(any(feature = "save_plugin_status", feature = "save_bot_admin"))]
     pub(crate) fn save_bot_status(&self) {
         let file_path = "kovi.conf.toml";
         let existing_content = fs::read_to_string(file_path).unwrap_or_default();
@@ -421,20 +451,23 @@ impl Bot {
             }
         }
 
-        // 确保 "config" 存在
-        if !doc.contains_key("config") {
-            doc["config"] = toml_edit::table();
-        }
+        #[cfg(feature = "save_bot_admin")]
+        {
+            // 确保 "config" 存在
+            if !doc.contains_key("config") {
+                doc["config"] = toml_edit::table();
+            }
 
-        // 更新 "config" 中的 admin 信息
-        doc["config"]["main_admin"] = toml_edit::value(self.information.main_admin);
-        doc["config"]["admins"] = toml_edit::Item::Value(toml_edit::Value::Array(
-            self.information
-                .deputy_admins
-                .iter()
-                .map(|&x| toml_edit::Value::from(x))
-                .collect(),
-        ));
+            // 更新 "config" 中的 admin 信息
+            doc["config"]["main_admin"] = toml_edit::value(self.information.main_admin);
+            doc["config"]["admins"] = toml_edit::Item::Value(toml_edit::Value::Array(
+                self.information
+                    .deputy_admins
+                    .iter()
+                    .map(|&x| toml_edit::Value::from(x))
+                    .collect(),
+            ));
+        }
 
         let file = fs::File::create(file_path).unwrap();
         let mut writer = std::io::BufWriter::new(file);
