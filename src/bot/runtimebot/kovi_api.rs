@@ -10,6 +10,9 @@ use std::{
 };
 use tokio::sync::mpsc;
 
+#[deprecated(since = "0.11.0", note = "弃用，直接删掉就好了")]
+pub trait KoviApi {}
+
 #[derive(Debug, Clone)]
 pub enum SetAdmin {
     /// 增加一个管理员
