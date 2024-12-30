@@ -10,6 +10,7 @@ use log::error;
 use std::{
     borrow::Borrow,
     future::Future,
+    process::exit,
     sync::{Arc, LazyLock, RwLock},
 };
 use tokio::{
@@ -190,6 +191,10 @@ impl ExitCheck {
             Self::await_exit_signal().await;
 
             let _ = tx.send(true);
+
+            Self::await_exit_signal().await;
+
+            handler_second_time_exit_signal().await;
         });
 
         ExitCheck {
@@ -251,4 +256,8 @@ pub(crate) async fn exit_signal_check(tx: Sender<InternalEvent>) {
     tx.send(InternalEvent::KoviEvent(KoviEvent::Drop))
         .await
         .unwrap();
+}
+
+async fn handler_second_time_exit_signal() {
+    exit(1)
 }

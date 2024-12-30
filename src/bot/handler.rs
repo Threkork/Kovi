@@ -3,7 +3,7 @@ use log::{debug, error, info, warn};
 #[cfg(feature = "message_sent")]
 use plugin_builder::AllMsgFn;
 use plugin_builder::{
-    event::{AllMsgEvent, AllNoticeEvent, AllRequestEvent},
+    event::{MsgEvent, NoticeEvent, RequestEvent},
     AllNoticeFn, AllRequestFn, ListenMsgFn, NoArgsFn,
 };
 use serde_json::{json, Value};
@@ -76,16 +76,16 @@ impl Bot {
         }
 
         enum OneBotEvent {
-            Msg(AllMsgEvent),
+            Msg(MsgEvent),
             #[cfg(feature = "message_sent")]
-            MsgSent(AllMsgEvent),
-            AllNotice(AllNoticeEvent),
-            AllRequest(AllRequestEvent),
+            MsgSent(MsgEvent),
+            AllNotice(NoticeEvent),
+            AllRequest(RequestEvent),
         }
 
         let event = match msg_json.get("post_type").unwrap().as_str().unwrap() {
             "message" => {
-                let e = match AllMsgEvent::new(api_tx, &msg) {
+                let e = match MsgEvent::new(api_tx, &msg) {
                     Ok(event) => event,
                     Err(e) => {
                         error!("{e}");
@@ -106,7 +106,7 @@ impl Bot {
             }
             #[cfg(feature = "message_sent")]
             "message_sent" => {
-                let e = match AllMsgEvent::new(api_tx, &msg) {
+                let e = match MsgEvent::new(api_tx, &msg) {
                     Ok(event) => event,
                     Err(e) => {
                         error!("{e}");
@@ -116,7 +116,7 @@ impl Bot {
                 OneBotEvent::MsgSent(e)
             }
             "notice" => {
-                let e = match AllNoticeEvent::new(&msg) {
+                let e = match NoticeEvent::new(&msg) {
                     Ok(event) => event,
                     Err(e) => {
                         error!("{e}");
@@ -126,7 +126,7 @@ impl Bot {
                 OneBotEvent::AllNotice(e)
             }
             "request" => {
-                let e = match AllRequestEvent::new(&msg) {
+                let e = match RequestEvent::new(&msg) {
                     Ok(event) => event,
                     Err(e) => {
                         error!("{e}");
@@ -261,7 +261,7 @@ impl Bot {
         }
     }
 
-    async fn handle_msg(listen: Arc<ListenMsgFn>, e: Arc<AllMsgEvent>, bot: Arc<RwLock<Bot>>) {
+    async fn handle_msg(listen: Arc<ListenMsgFn>, e: Arc<MsgEvent>, bot: Arc<RwLock<Bot>>) {
         match &*listen {
             ListenMsgFn::Msg(handler) => {
                 handler(e).await;
@@ -293,15 +293,15 @@ impl Bot {
     }
 
     #[cfg(feature = "message_sent")]
-    async fn handler_msg_sent(listen: AllMsgFn, e: Arc<AllMsgEvent>) {
+    async fn handler_msg_sent(listen: AllMsgFn, e: Arc<MsgEvent>) {
         listen(e).await;
     }
 
-    async fn handler_notice(listen: AllNoticeFn, e: Arc<AllNoticeEvent>) {
+    async fn handler_notice(listen: AllNoticeFn, e: Arc<NoticeEvent>) {
         listen(e).await;
     }
 
-    async fn handler_request(listen: AllRequestFn, e: Arc<AllRequestEvent>) {
+    async fn handler_request(listen: AllRequestFn, e: Arc<RequestEvent>) {
         listen(e).await;
     }
 
@@ -351,7 +351,7 @@ impl Bot {
 }
 
 #[cfg(feature = "plugin-access-control")]
-fn is_access(plugin: &BotPlugin, event: &AllMsgEvent) -> bool {
+fn is_access(plugin: &BotPlugin, event: &MsgEvent) -> bool {
     if !plugin.access_control {
         return true;
     }

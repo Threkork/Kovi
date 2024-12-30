@@ -1,8 +1,14 @@
-pub use msg_event::AllMsgEvent;
+pub use msg_event::MsgEvent;
 use serde::{Deserialize, Serialize};
 use serde_json::{self, Value};
 
 pub mod msg_event;
+
+#[deprecated(since = "0.11.0", note = "请使用 `NoticeEvent` 代替")]
+pub type AllNoticeEvent = NoticeEvent;
+
+#[deprecated(since = "0.11.0", note = "请使用 `RequestEvent` 代替")]
+pub type AllRequestEvent = RequestEvent;
 
 #[derive(Debug, Copy, Clone)]
 pub enum Sex {
@@ -30,7 +36,7 @@ pub struct Anonymous {
 }
 
 #[derive(Debug, Clone)]
-pub struct AllNoticeEvent {
+pub struct NoticeEvent {
     /// 事件发生的时间戳
     pub time: i64,
     /// 收到事件的机器人 登陆号
@@ -43,14 +49,14 @@ pub struct AllNoticeEvent {
     /// 原始的onebot消息，已处理成json格式
     pub original_json: Value,
 }
-impl AllNoticeEvent {
-    pub(crate) fn new(msg: &str) -> Result<AllNoticeEvent, Box<dyn std::error::Error>> {
+impl NoticeEvent {
+    pub(crate) fn new(msg: &str) -> Result<NoticeEvent, Box<dyn std::error::Error>> {
         let temp: Value = serde_json::from_str(msg)?;
         let time = temp.get("time").unwrap().as_i64().unwrap();
         let self_id = temp.get("self_id").unwrap().as_i64().unwrap();
         let post_type = temp.get("post_type").unwrap().to_string();
         let notice_type = temp.get("notice_type").unwrap().to_string();
-        Ok(AllNoticeEvent {
+        Ok(NoticeEvent {
             time,
             self_id,
             post_type,
@@ -61,7 +67,7 @@ impl AllNoticeEvent {
 }
 
 #[derive(Debug, Clone)]
-pub struct AllRequestEvent {
+pub struct RequestEvent {
     /// 事件发生的时间戳
     pub time: i64,
     /// 收到事件的机器人 登陆号
@@ -74,14 +80,14 @@ pub struct AllRequestEvent {
     /// 原始的onebot消息，已处理成json格式
     pub original_json: Value,
 }
-impl AllRequestEvent {
-    pub(crate) fn new(msg: &str) -> Result<AllRequestEvent, Box<dyn std::error::Error>> {
+impl RequestEvent {
+    pub(crate) fn new(msg: &str) -> Result<RequestEvent, Box<dyn std::error::Error>> {
         let temp: Value = serde_json::from_str(msg)?;
         let time = temp.get("time").unwrap().as_i64().unwrap();
         let self_id = temp.get("self_id").unwrap().as_i64().unwrap();
         let post_type = temp.get("post_type").unwrap().to_string();
         let request_type = temp.get("request_type").unwrap().to_string();
-        Ok(AllRequestEvent {
+        Ok(RequestEvent {
             time,
             self_id,
             post_type,

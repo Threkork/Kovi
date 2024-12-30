@@ -2,7 +2,7 @@ use super::{runtimebot::RuntimeBot, Bot};
 use super::{ApiAndOneshot, Host, PLUGIN_BUILDER, PLUGIN_NAME};
 use croner::errors::CronError;
 use croner::Cron;
-use event::{AllMsgEvent, AllNoticeEvent, AllRequestEvent};
+use event::{MsgEvent, NoticeEvent, RequestEvent};
 use log::error;
 use std::future::Future;
 use std::pin::Pin;
@@ -13,11 +13,11 @@ pub mod event;
 
 pub type PinFut = Pin<Box<dyn Future<Output = ()> + Send>>;
 
-pub type AllMsgFn = Arc<dyn Fn(Arc<AllMsgEvent>) -> PinFut + Send + Sync>;
+pub type AllMsgFn = Arc<dyn Fn(Arc<MsgEvent>) -> PinFut + Send + Sync>;
 
-pub type AllNoticeFn = Arc<dyn Fn(Arc<AllNoticeEvent>) -> PinFut + Send + Sync>;
+pub type AllNoticeFn = Arc<dyn Fn(Arc<NoticeEvent>) -> PinFut + Send + Sync>;
 
-pub type AllRequestFn = Arc<dyn Fn(Arc<AllRequestEvent>) -> PinFut + Send + Sync>;
+pub type AllRequestFn = Arc<dyn Fn(Arc<RequestEvent>) -> PinFut + Send + Sync>;
 
 pub type NoArgsFn = Arc<dyn Fn() -> PinFut + Send + Sync>;
 
@@ -100,10 +100,10 @@ impl PluginBuilder {
 impl PluginBuilder {
     /// 注册消息处理函数。
     ///
-    /// 注册一个处理程序，用于处理接收到的消息事件（`AllMsgEvent`）。
+    /// 注册一个处理程序，用于处理接收到的消息事件（`MsgEvent`）。
     pub fn on_msg<F, Fut>(handler: F)
     where
-        F: Fn(Arc<AllMsgEvent>) -> Fut + Send + Sync + 'static,
+        F: Fn(Arc<MsgEvent>) -> Fut + Send + Sync + 'static,
         Fut: Future + Send,
         Fut::Output: Send,
     {
@@ -130,10 +130,10 @@ impl PluginBuilder {
 
     /// 注册管理员消息处理函数。
     ///
-    /// 注册一个处理程序，用于处理接收到的消息事件（`AllMsgEvent`）。
+    /// 注册一个处理程序，用于处理接收到的消息事件（`MsgEvent`）。
     pub fn on_admin_msg<F, Fut>(handler: F)
     where
-        F: Fn(Arc<AllMsgEvent>) -> Fut + Send + Sync + 'static,
+        F: Fn(Arc<MsgEvent>) -> Fut + Send + Sync + 'static,
         Fut: Future + Send,
         Fut::Output: Send,
     {
@@ -160,10 +160,10 @@ impl PluginBuilder {
 
     /// 注册管理员消息处理函数。
     ///
-    /// 注册一个处理程序，用于处理接收到的消息事件（`AllMsgEvent`）。
+    /// 注册一个处理程序，用于处理接收到的消息事件（`MsgEvent`）。
     pub fn on_private_msg<F, Fut>(handler: F)
     where
-        F: Fn(Arc<AllMsgEvent>) -> Fut + Send + Sync + 'static,
+        F: Fn(Arc<MsgEvent>) -> Fut + Send + Sync + 'static,
         Fut: Future + Send,
         Fut::Output: Send,
     {
@@ -190,7 +190,7 @@ impl PluginBuilder {
 
     pub fn on_group_msg<F, Fut>(handler: F)
     where
-        F: Fn(Arc<AllMsgEvent>) -> Fut + Send + Sync + 'static,
+        F: Fn(Arc<MsgEvent>) -> Fut + Send + Sync + 'static,
         Fut: Future + Send,
         Fut::Output: Send,
     {
@@ -219,7 +219,7 @@ impl PluginBuilder {
     /// 注册 message_sent 消息处理函数。
     pub fn on_msg_send<F, Fut>(handler: F)
     where
-        F: Fn(Arc<AllMsgEvent>) -> Fut + Send + Sync + 'static,
+        F: Fn(Arc<MsgEvent>) -> Fut + Send + Sync + 'static,
         Fut: Future + Send,
         Fut::Output: Send,
     {
@@ -243,10 +243,10 @@ impl PluginBuilder {
 
     /// 注册消息处理函数。
     ///
-    /// 注册一个处理程序，用于处理接收到的消息事件（`AllNoticeEvent`）。
+    /// 注册一个处理程序，用于处理接收到的消息事件（`NoticeEvent`）。
     pub fn on_all_notice<F, Fut>(handler: F)
     where
-        F: Fn(Arc<AllNoticeEvent>) -> Fut + Send + Sync + 'static,
+        F: Fn(Arc<NoticeEvent>) -> Fut + Send + Sync + 'static,
         Fut: Future + Send,
         Fut::Output: Send,
     {
@@ -270,10 +270,10 @@ impl PluginBuilder {
 
     /// 注册异步消息处理函数。
     ///
-    /// 注册一个处理程序，用于处理接收到的消息事件（`AllRequestEvent`）。
+    /// 注册一个处理程序，用于处理接收到的消息事件（`RequestEvent`）。
     pub fn on_all_request<F, Fut>(handler: F)
     where
-        F: Fn(Arc<AllRequestEvent>) -> Fut + Send + Sync + 'static,
+        F: Fn(Arc<RequestEvent>) -> Fut + Send + Sync + 'static,
         Fut: Future + Send,
         Fut::Output: Send,
     {

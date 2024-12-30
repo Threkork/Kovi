@@ -214,7 +214,7 @@ impl SendApi {
 
 impl BotPlugin {
     fn shutdown(&mut self) -> JoinHandle<()> {
-        log::debug!("Plugin '{}' is dropping. ", self.name,);
+        log::info!("Plugin '{}' is dropping.", self.name,);
 
         let plugin_name_ = Arc::new(self.name.clone());
 
