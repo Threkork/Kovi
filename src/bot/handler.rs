@@ -1,15 +1,14 @@
-use crate::{bot::*, task::PLUGIN_NAME};
+use crate::bot::*;
 use log::{debug, error, info, warn};
 #[cfg(feature = "message_sent")]
 use plugin_builder::AllMsgFn;
 use plugin_builder::{
-    event::{AllMsgEvent, AllNoticeEvent, AllRequestEvent},
+    event::{MsgEvent, NoticeEvent, RequestEvent},
     AllNoticeFn, AllRequestFn, ListenMsgFn, NoArgsFn,
 };
 use serde_json::{json, Value};
 use std::sync::{Arc, RwLock};
 use tokio::sync::oneshot;
-
 
 /// Kovi内部事件
 pub enum InternalEvent {
@@ -35,20 +34,14 @@ impl Bot {
 
     pub(crate) async fn handle_kovi_event(bot: Arc<RwLock<Self>>, event: KoviEvent) {
         let drop_task = {
-            let bot_read = bot.read().unwrap();
+            let mut bot_write = bot.write().unwrap();
             match event {
                 KoviEvent::Drop => {
+                    #[cfg(any(feature = "save_plugin_status", feature = "save_bot_admin"))]
+                    bot_write.save_bot_status();
                     let mut task_vec = Vec::new();
-                    for (name, plugin) in bot_read.plugins.iter() {
-                        let name_ = Arc::new(name.clone());
-                        for listen in &plugin.listen.drop {
-                            let name = name_.clone();
-                            let listen = listen.clone();
-                            log::info!("Plugin '{}' is dropping, please wait. 插件 '{}' 正在做最后清理，请稍后。", name, name);
-                            let task =
-                                tokio::spawn(PLUGIN_NAME.scope(name, Self::handler_drop(listen)));
-                            task_vec.push(task);
-                        }
+                    for plugin in bot_write.plugins.values_mut() {
+                        task_vec.push(plugin.shutdown());
                     }
                     Some(task_vec)
                 }
@@ -83,16 +76,16 @@ impl Bot {
         }
 
         enum OneBotEvent {
-            Msg(AllMsgEvent),
+            Msg(MsgEvent),
             #[cfg(feature = "message_sent")]
-            MsgSent(AllMsgEvent),
-            AllNotice(AllNoticeEvent),
-            AllRequest(AllRequestEvent),
+            MsgSent(MsgEvent),
+            AllNotice(NoticeEvent),
+            AllRequest(RequestEvent),
         }
 
         let event = match msg_json.get("post_type").unwrap().as_str().unwrap() {
             "message" => {
-                let e = match AllMsgEvent::new(api_tx, &msg) {
+                let e = match MsgEvent::new(api_tx, &msg) {
                     Ok(event) => event,
                     Err(e) => {
                         error!("{e}");
@@ -113,7 +106,7 @@ impl Bot {
             }
             #[cfg(feature = "message_sent")]
             "message_sent" => {
-                let e = match AllMsgEvent::new(api_tx, &msg) {
+                let e = match MsgEvent::new(api_tx, &msg) {
                     Ok(event) => event,
                     Err(e) => {
                         error!("{e}");
@@ -123,7 +116,7 @@ impl Bot {
                 OneBotEvent::MsgSent(e)
             }
             "notice" => {
-                let e = match AllNoticeEvent::new(&msg) {
+                let e = match NoticeEvent::new(&msg) {
                     Ok(event) => event,
                     Err(e) => {
                         error!("{e}");
@@ -133,7 +126,7 @@ impl Bot {
                 OneBotEvent::AllNotice(e)
             }
             "request" => {
-                let e = match AllRequestEvent::new(&msg) {
+                let e = match RequestEvent::new(&msg) {
                     Ok(event) => event,
                     Err(e) => {
                         error!("{e}");
@@ -155,6 +148,12 @@ impl Bot {
             OneBotEvent::Msg(e) => {
                 let e = Arc::new(e);
                 for (name, plugin) in bot_read.plugins.iter() {
+                    // 判断是否黑白名单
+                    #[cfg(feature = "plugin-access-control")]
+                    if is_access(plugin, &e) {
+                        continue;
+                    }
+
                     let name_ = Arc::new(name.clone());
 
                     for listen in &plugin.listen.msg {
@@ -262,7 +261,7 @@ impl Bot {
         }
     }
 
-    async fn handle_msg(listen: Arc<ListenMsgFn>, e: Arc<AllMsgEvent>, bot: Arc<RwLock<Bot>>) {
+    async fn handle_msg(listen: Arc<ListenMsgFn>, e: Arc<MsgEvent>, bot: Arc<RwLock<Bot>>) {
         match &*listen {
             ListenMsgFn::Msg(handler) => {
                 handler(e).await;
@@ -272,7 +271,7 @@ impl Bot {
                 let user_id = e.user_id;
                 let admin_vec = {
                     let bot = bot.read().unwrap();
-                    let mut admin_vec = bot.information.admin.clone();
+                    let mut admin_vec = bot.information.deputy_admins.clone();
                     admin_vec.push(bot.information.main_admin);
                     admin_vec
                 };
@@ -294,15 +293,15 @@ impl Bot {
     }
 
     #[cfg(feature = "message_sent")]
-    async fn handler_msg_sent(listen: AllMsgFn, e: Arc<AllMsgEvent>) {
+    async fn handler_msg_sent(listen: AllMsgFn, e: Arc<MsgEvent>) {
         listen(e).await;
     }
 
-    async fn handler_notice(listen: AllNoticeFn, e: Arc<AllNoticeEvent>) {
+    async fn handler_notice(listen: AllNoticeFn, e: Arc<NoticeEvent>) {
         listen(e).await;
     }
 
-    async fn handler_request(listen: AllRequestFn, e: Arc<AllRequestEvent>) {
+    async fn handler_request(listen: AllRequestFn, e: Arc<RequestEvent>) {
         listen(e).await;
     }
 
@@ -348,5 +347,30 @@ impl Bot {
             "Bot connection successful，Nickname:{},ID:{}",
             self_name, self_id
         );
+    }
+}
+
+#[cfg(feature = "plugin-access-control")]
+fn is_access(plugin: &BotPlugin, event: &MsgEvent) -> bool {
+    if !plugin.access_control {
+        return true;
+    }
+
+    let access_list = &plugin.access_list;
+    let in_group = event.is_group();
+
+    match (plugin.list_mode, in_group) {
+        (AccessControlMode::WhiteList, true) => access_list
+            .groups
+            .contains(event.group_id.as_ref().unwrap()),
+        (AccessControlMode::WhiteList, false) => {
+            access_list.friends.contains(&event.sender.user_id)
+        }
+        (AccessControlMode::BlackList, true) => !access_list
+            .groups
+            .contains(event.group_id.as_ref().unwrap()),
+        (AccessControlMode::BlackList, false) => {
+            !access_list.friends.contains(&event.sender.user_id)
+        }
     }
 }

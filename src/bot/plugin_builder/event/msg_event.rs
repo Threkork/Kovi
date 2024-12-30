@@ -1,4 +1,4 @@
-use super::{AllNoticeEvent, AllRequestEvent, Anonymous, Sender};
+use super::{Anonymous, Sender};
 use crate::bot::runtimebot::send_api_request_with_forget;
 use crate::{
     bot::{plugin_builder::event::Sex, ApiAndOneshot, SendApi},
@@ -15,19 +15,11 @@ use log::error;
 #[cfg(feature = "cqstring")]
 use crate::bot::message::{cq_to_arr, CQMessage};
 
-pub trait Event {}
-
-impl Event for AllMsgEvent {
-}
-
-impl Event for AllNoticeEvent {
-}
-
-impl Event for AllRequestEvent {
-}
+#[deprecated(since = "0.11.0", note = "请使用 `MsgEvent` 代替")]
+pub type AllMsgEvent = MsgEvent;
 
 #[derive(Debug, Clone)]
-pub struct AllMsgEvent {
+pub struct MsgEvent {
     /// 事件发生的时间戳
     pub time: i64,
     /// 收到事件的机器人 登陆号
@@ -65,12 +57,11 @@ pub struct AllMsgEvent {
     api_tx: mpsc::Sender<ApiAndOneshot>,
 }
 
-
-impl AllMsgEvent {
+impl MsgEvent {
     pub(crate) fn new(
         api_tx: mpsc::Sender<ApiAndOneshot>,
         msg: &str,
-    ) -> Result<AllMsgEvent, Box<dyn std::error::Error>> {
+    ) -> Result<MsgEvent, Box<dyn std::error::Error>> {
         let temp: Value = serde_json::from_str(msg)?;
 
         let temp_object = temp.as_object().unwrap();
@@ -140,7 +131,6 @@ impl AllMsgEvent {
                 Some(serde_json::from_value(anonymous).unwrap())
             };
 
-
         let text = {
             let mut text_vec = Vec::new();
             for msg in message.iter() {
@@ -155,7 +145,7 @@ impl AllMsgEvent {
             }
         };
 
-        let event = AllMsgEvent {
+        let event = MsgEvent {
             human_text: message.to_human_string(),
             time: temp_object["time"].as_i64().unwrap(),
             self_id: temp_object["self_id"].as_i64().unwrap(),
@@ -179,7 +169,7 @@ impl AllMsgEvent {
     }
 }
 
-impl AllMsgEvent {
+impl MsgEvent {
     fn reply_builder<T>(&self, msg: T, auto_escape: bool) -> SendApi
     where
         T: Serialize,
@@ -301,7 +291,6 @@ impl AllMsgEvent {
         send_api_request_with_forget(&self.api_tx, send_msg);
     }
 
-
     #[cfg(feature = "cqstring")]
     /// 快速回复消息，并且**kovi不进行解析，直接发送此字符串**
     pub fn reply_text<T>(&self, msg: T)
@@ -322,7 +311,6 @@ impl AllMsgEvent {
         info!("[reply] [to {message_type}{group_id} {nickname} {id}]: {msg}");
         send_api_request_with_forget(&self.api_tx, send_msg);
     }
-
 
     /// 便捷获取文本，如果没有文本则会返回空字符串，如果只需要借用，请使用 `borrow_text()`
     pub fn get_text(&self) -> String {

@@ -2,26 +2,39 @@
 
 # Kovi
 
-A OneBot V11 bot plugin framework developed in Rust.
+Kovi is a plugin framework for OneBot V11. If you want to develop OneBot V11 bots using Rust, Kovi is a great choice.
 
-You can find more documentation in the [Kovi Doc](https://threkork.github.io/kovi-doc/).
+🎯 The goal is to create the simplest OneBot framework in Rust! Simplifying complex Rust syntax? Kovi has done its best.
 
-The project is currently in beta.
+🤔 Let me count, the quick start in the documentation only requires 15 lines of code to create and run the simplest plugin.
 
-More features will be added in future updates.
+🥁 There’s also a CLI tool to make project development easier.
 
-**Note⚠️: The project is in Beta, and the following may change.**
+🛍️ The plugin store provides an excellent Kovi shopping experience, allowing you to easily access packages from plugin developers 📦.
 
-**Note⚠️: The project currently only supports the OneBot V11 forward WebSocket protocol.**
+😍 The project documentation is very simple and easy to understand. Follow it and you’ll be good to go.
+
+### ↓ Documentation is here
+
+[Kovi Doc](https://threkork.github.io/kovi-doc/)
+
+### ↓ The store is here
+
+[Kovi Shop](https://kovi.threkork.com/start/plugins.html)
+
+**Note ⚠️: Currently, the project only supports OneBot V11's forward WebSocket protocol.**
 
 ## Getting Started
 
 It's recommended to use `kovi-cli` to manage your Kovi bot project.
 
+```bash
+cargo install kovi-cli
+```
+
 1. Create a basic Rust project and add the framework.
 
 ```bash
-cargo install kovi-cli
 cargo kovi new my-kovi-bot
 cd ./my-kovi-bot
 ```

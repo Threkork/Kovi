@@ -1,6 +1,6 @@
 [package]
 name = "kovi"
-version = "0.10.4"
+version = "0.11.0"
 edition = "2021"
 description = "A OneBot V11 bot plugin framework"
 license = "MPL-2.0"
@@ -41,10 +41,16 @@ parking_lot = "0.12"
 
 
 [features]
-default = ["logger", "native-tls"]
+default = ["logger", "save_bot_status", "plugin-access-control"]
 logger = ["env_logger"]
-cqstring = []
+save_bot_status = ["save_bot_admin", "save_plugin_status"]
+save_bot_admin = []
+save_plugin_status = []
+plugin-access-control = []
+
 message_sent = []
+cqstring = []
+
 native-tls = [
     "reqwest/native-tls-vendored",
     "tokio-tungstenite/native-tls-vendored",

@@ -1,10 +1,16 @@
-use super::{exit_and_eprintln, handler::InternalEvent, ApiAndOneshot, ApiReturn, Bot, Host};
+use super::Server;
+use super::{handler::InternalEvent, ApiAndOneshot, ApiReturn, Bot, Host};
 use ahash::{HashMapExt as _, RandomState};
 use futures_util::{SinkExt, StreamExt};
-use log::{debug, warn};
+use log::{debug, error, warn};
+use parking_lot::Mutex;
 use reqwest::header::HeaderValue;
+use std::error::Error;
+use std::fmt::Display;
+use std::sync::RwLock;
 use std::{collections::HashMap, net::IpAddr, sync::Arc};
-use tokio::sync::{mpsc, Mutex};
+use tokio::sync::mpsc::Sender;
+use tokio::sync::{mpsc, oneshot};
 use tokio_tungstenite::{connect_async, tungstenite::client::IntoClientRequest};
 
 type ApiTxMap = Arc<
@@ -13,12 +19,57 @@ type ApiTxMap = Arc<
 
 impl Bot {
     pub(crate) async fn ws_connect(
-        host: Host,
-        port: u16,
-        access_token: String,
-        secure: bool,
+        server: Server,
+        api_rx: mpsc::Receiver<ApiAndOneshot>,
         event_tx: mpsc::Sender<InternalEvent>,
+        bot: Arc<RwLock<Bot>>,
+    ) -> Result<(), Box<dyn Error + Send + Sync>> {
+        #[allow(clippy::type_complexity)]
+        let (event_connected_tx, event_connected_rx): (
+            oneshot::Sender<Result<(), Box<dyn std::error::Error + Send + Sync>>>,
+            oneshot::Receiver<Result<(), Box<dyn std::error::Error + Send + Sync>>>,
+        ) = oneshot::channel();
+
+        #[allow(clippy::type_complexity)]
+        let (api_connected_tx, api_connected_rx): (
+            oneshot::Sender<Result<(), Box<dyn Error + Send + Sync>>>,
+            oneshot::Receiver<Result<(), Box<dyn Error + Send + Sync>>>,
+        ) = oneshot::channel();
+
+        {
+            let mut bot_write = bot.write().unwrap();
+            bot_write.spawn(Self::ws_event_connect(
+                server.clone(),
+                event_tx.clone(),
+                event_connected_tx,
+                bot.clone(),
+            ));
+            bot_write.spawn(Self::ws_send_api(
+                server,
+                api_rx,
+                event_tx,
+                api_connected_tx,
+                bot.clone(),
+            ));
+        }
+
+        let (res1, res2) = tokio::join!(event_connected_rx, api_connected_rx);
+        let (res1, res2) = (res1.unwrap(), res2.unwrap());
+        match (res1, res2) {
+            (Ok(_), Ok(_)) => Ok(()),
+            (Err(e), _) | (_, Err(e)) => Err(e),
+        }
+    }
+
+    pub(crate) async fn ws_event_connect(
+        server: Server,
+        event_tx: mpsc::Sender<InternalEvent>,
+        connected_tx: oneshot::Sender<Result<(), Box<dyn Error + Send + Sync>>>,
+        bot: Arc<RwLock<Bot>>,
     ) {
+        let (host, port, access_token, secure) =
+            (server.host, server.port, server.access_token, server.secure);
+
         let protocol = if secure { "wss" } else { "ws" };
         let mut request = match host {
             Host::IpAddr(ip) => match ip {
@@ -45,13 +96,17 @@ impl Bot {
         let (ws_stream, _) = match connect_async(request).await {
             Ok(v) => v,
             Err(e) => {
-                exit_and_eprintln(e, event_tx).await;
+                connected_tx.send(Err(e.into())).unwrap();
                 return;
             }
         };
 
+        connected_tx.send(Ok(())).unwrap();
+
         let (_, read) = ws_stream.split();
-        read.for_each(|msg| {
+
+        let mut bot_write = bot.write().unwrap();
+        bot_write.spawn(read.for_each(move |msg| {
             let event_tx = event_tx.clone();
             async {
                 match msg {
@@ -68,21 +123,22 @@ impl Bot {
                             debug!("通道关闭：{e}")
                         }
                     }
-                    Err(e) => exit_and_eprintln(e, event_tx).await,
+                    Err(e) => connection_failed_eprintln(e, event_tx).await,
                 }
             }
-        })
-        .await;
+        }));
     }
 
     pub(crate) async fn ws_send_api(
-        host: Host,
-        port: u16,
-        access_token: String,
-        secure: bool,
+        server: Server,
         mut api_rx: mpsc::Receiver<ApiAndOneshot>,
         event_tx: mpsc::Sender<InternalEvent>,
+        connected_tx: oneshot::Sender<Result<(), Box<dyn std::error::Error + Send + Sync>>>,
+        bot: Arc<RwLock<Bot>>,
     ) {
+        let (host, port, access_token, secure) =
+            (server.host, server.port, server.access_token, server.secure);
+
         let protocol = if secure { "wss" } else { "ws" };
         let mut request = match host {
             Host::IpAddr(ip) => match ip {
@@ -106,22 +162,23 @@ impl Bot {
             );
         }
 
-
         let (ws_stream, _) = match connect_async(request).await {
             Ok(v) => v,
             Err(e) => {
-                exit_and_eprintln(e, event_tx).await;
+                connected_tx.send(Err(e.into())).unwrap();
                 return;
             }
         };
 
-        let (write, read) = ws_stream.split();
-        let write = Arc::new(Mutex::new(write));
+        connected_tx.send(Ok(())).unwrap();
 
+        let (mut write, read) = ws_stream.split();
         let api_tx_map: ApiTxMap = Arc::new(Mutex::new(HashMap::<_, _, RandomState>::new()));
 
+        let mut bot_write = bot.write().unwrap();
+
         //读
-        tokio::spawn({
+        bot_write.spawn({
             let api_tx_map = Arc::clone(&api_tx_map);
             let event_tx = event_tx.clone();
             async move {
@@ -131,7 +188,7 @@ impl Bot {
                         match msg {
                             Ok(msg) => {
                                 if msg.is_close() {
-                                    exit_and_eprintln(
+                                    connection_failed_eprintln(
                                         format!("{msg}\nBot api connection failed"),
                                         event_tx,
                                     )
@@ -158,13 +215,11 @@ impl Bot {
                                     warn!("Api return error: {text}")
                                 }
 
-
                                 if return_value.echo == "None" {
                                     return;
                                 }
 
-
-                                let mut api_tx_map = api_tx_map.lock().await;
+                                let mut api_tx_map = api_tx_map.lock();
 
                                 let api_tx = api_tx_map.remove(&return_value.echo).unwrap();
                                 let r = if return_value.status.to_lowercase() == "ok" {
@@ -180,7 +235,7 @@ impl Bot {
                                 };
                             }
 
-                            Err(e) => exit_and_eprintln(e, event_tx).await,
+                            Err(e) => connection_failed_eprintln(e, event_tx).await,
                         }
                     }
                 })
@@ -188,10 +243,8 @@ impl Bot {
             }
         });
 
-
         //写
-        tokio::spawn({
-            let write = Arc::clone(&write);
+        bot_write.spawn({
             let api_tx_map = Arc::clone(&api_tx_map);
             async move {
                 while let Some((api_msg, return_api_tx)) = api_rx.recv().await {
@@ -201,17 +254,31 @@ impl Bot {
                     if &api_msg.echo != "None" {
                         api_tx_map
                             .lock()
-                            .await
                             .insert(api_msg.echo.clone(), return_api_tx.unwrap());
                     }
 
                     let msg = tokio_tungstenite::tungstenite::Message::text(api_msg.to_string());
-                    let mut write_lock = write.lock().await;
-                    if let Err(e) = write_lock.send(msg).await {
-                        exit_and_eprintln(e, event_tx).await;
+
+                    if let Err(e) = write.send(msg).await {
+                        connection_failed_eprintln(e, event_tx).await;
                     }
                 }
             }
         });
     }
+}
+
+async fn connection_failed_eprintln<E>(e: E, event_tx: Sender<InternalEvent>)
+where
+    E: Display,
+{
+    log::error!("{e}\nBot connection failed, please check the configuration and restart.");
+    if let Err(e) = event_tx
+        .send(InternalEvent::KoviEvent(
+            crate::bot::handler::KoviEvent::Drop,
+        ))
+        .await
+    {
+        error!("通道关闭,{e}")
+    };
 }

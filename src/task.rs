@@ -1,3 +1,4 @@
+use crate::bot::PLUGIN_NAME;
 use ahash::RandomState;
 use parking_lot::Mutex;
 use std::{
@@ -13,7 +14,6 @@ use tokio::{
 };
 
 pub(crate) static TASK_MANAGER: LazyLock<TaskManager> = LazyLock::new(TaskManager::init);
-
 
 pub(crate) struct TaskManager {
     pub(crate) handles: Arc<Mutex<TaskAbortHandles>>,
@@ -75,12 +75,6 @@ impl TaskAbortHandles {
         }
     }
 }
-
-
-tokio::task_local! {
-    pub(crate) static PLUGIN_NAME: Arc<String>;
-}
-
 
 /// 生成一个新的异步线程并立即运行，另外，这个线程关闭句柄会被交给 Kovi 管理。
 ///

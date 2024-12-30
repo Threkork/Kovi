@@ -2,37 +2,48 @@ use super::{
     handler::{InternalEvent, KoviEvent},
     ApiAndOneshot, Bot, BotPlugin,
 };
-use crate::{task::PLUGIN_NAME, PluginBuilder};
+use crate::{
+    bot::{PLUGIN_BUILDER, PLUGIN_NAME},
+    PluginBuilder,
+};
 use log::error;
 use std::{
     borrow::Borrow,
-    sync::{Arc, RwLock},
+    future::Future,
+    process::exit,
+    sync::{Arc, LazyLock, RwLock},
 };
 use tokio::{
     runtime::Runtime,
-    sync::mpsc::{self, Sender},
+    sync::{
+        mpsc::{self, Sender},
+        watch,
+    },
+    task::JoinHandle,
 };
 
-tokio::task_local! {
-    pub(crate) static PLUGIN_BUILDER: PluginBuilder;
-}
+pub(crate) static RUNTIME: LazyLock<Runtime> = LazyLock::new(|| Runtime::new().unwrap());
 
 impl Bot {
+    pub fn spawn<F>(&mut self, future: F) -> JoinHandle<F::Output>
+    where
+        F: Future + Send + 'static,
+        F::Output: Send + 'static,
+    {
+        let join = tokio::spawn(future);
+        self.run_abort.push(join.abort_handle());
+        join
+    }
+
     /// 运行bot
-    /// **注意此函数会阻塞并且接管程序退出, 程序不会运行后续所有代码**
+    ///
+    /// **注意此函数会阻塞, 直到Bot连接失效，或者有退出信号传入程序**
     pub fn run(self) {
-        let (host, port, access_token, secure) = (
-            self.information.server.host.clone(),
-            self.information.server.port,
-            self.information.server.access_token.clone(),
-            self.information.server.secure,
-        );
+        let server = self.information.server.clone();
 
         let bot = Arc::new(RwLock::new(self));
 
-        let rt = Runtime::new().unwrap();
-
-        rt.block_on(async {
+        RUNTIME.block_on(async {
             //处理连接，从msg_tx返回消息
             let (event_tx, mut event_rx): (
                 mpsc::Sender<InternalEvent>,
@@ -43,32 +54,42 @@ impl Bot {
             let (api_tx, api_rx): (mpsc::Sender<ApiAndOneshot>, mpsc::Receiver<ApiAndOneshot>) =
                 mpsc::channel(32);
 
-            // 事件连接
-            tokio::spawn({
+            // 连接
+            let connect_task = tokio::spawn({
                 let event_tx = event_tx.clone();
-                let access_token = access_token.clone();
-                Self::ws_connect(host.clone(), port, access_token, secure, event_tx)
+                Self::ws_connect(
+                    server,
+                    api_rx,
+                    event_tx,
+                    bot.clone(),
+                )
             });
+
+            let connect_res = connect_task.await.unwrap();
+
+            if let Err(e) = connect_res {
+                error!("{e}\nBot connection failed, please check the configuration and restart KoviBot");
+                return;
+            }
+
+            {
+            let mut bot_write = bot.write().unwrap();
 
             // drop检测
-            tokio::spawn({
-                let event_tx = event_tx.clone();
-                drop_check(event_tx, false)
+            bot_write.spawn({
+                let event_tx = event_tx;
+                exit_signal_check(event_tx)
             });
-
-            // api连接
-            tokio::spawn({
-                let access_token = access_token.clone();
-                Self::ws_send_api(host, port, access_token, secure, api_rx, event_tx)
-            });
-
 
             // 运行所有的main
-            tokio::spawn({
+            bot_write.spawn({
                 let bot = bot.clone();
                 let api_tx = api_tx.clone();
                 async move { Self::run_mains(bot, api_tx) }
             });
+            }
+
+
 
             let mut drop_task = None;
             //处理事件，每个事件都会来到这里
@@ -100,21 +121,20 @@ impl Bot {
         let bot_ = bot.read().unwrap();
         let main_job_map = bot_.plugins.borrow();
 
-        let (main_admin, admin, host, port) = {
+        let (host, port) = {
             (
-                bot_.information.main_admin,
-                bot_.information.admin.clone(),
                 bot_.information.server.host.clone(),
                 bot_.information.server.port,
             )
         };
 
         for (name, plugins) in main_job_map.iter() {
+            if !plugins.enable_on_startup {
+                continue;
+            }
             let plugin_builder = PluginBuilder::new(
                 name.clone(),
                 bot.clone(),
-                main_admin,
-                admin.clone(),
                 host.clone(),
                 port,
                 api_tx.clone(),
@@ -149,53 +169,95 @@ impl Bot {
     }
 }
 
+pub(crate) static DROP_CHECK: LazyLock<ExitCheck> = LazyLock::new(ExitCheck::init);
 
-#[cfg(windows)]
-use tokio::signal::windows;
+pub struct ExitCheck {
+    watch_rx: watch::Receiver<bool>,
+    join_handle: tokio::task::JoinHandle<()>,
+}
 
-#[cfg(unix)]
-use tokio::signal::unix::{signal, SignalKind};
-
-async fn drop_check(tx: Sender<InternalEvent>, exit: bool) {
-    #[cfg(windows)]
-    {
-        let mut sig_ctrl_break = windows::ctrl_break().unwrap();
-        let mut sig_ctrl_c = windows::ctrl_c().unwrap();
-        let mut sig_ctrl_close = windows::ctrl_close().unwrap();
-        let mut sig_ctrl_logoff = windows::ctrl_logoff().unwrap();
-        let mut sig_ctrl_shutdown = windows::ctrl_shutdown().unwrap();
-        tokio::select! {
-            _ = sig_ctrl_break.recv() => {}
-            _ = sig_ctrl_c.recv() => {}
-            _ = sig_ctrl_close.recv() => {}
-            _ = sig_ctrl_logoff.recv() => {}
-            _ = sig_ctrl_shutdown.recv() => {}
-        }
+impl Drop for ExitCheck {
+    fn drop(&mut self) {
+        self.join_handle.abort();
     }
-    #[cfg(unix)]
-    {
-        let mut sig_hangup = signal(SignalKind::hangup()).unwrap();
-        let mut sig_alarm = signal(SignalKind::alarm()).unwrap();
-        let mut sig_interrupt = signal(SignalKind::interrupt()).unwrap();
-        let mut sig_quit = signal(SignalKind::quit()).unwrap();
-        let mut sig_terminate = signal(SignalKind::terminate()).unwrap();
-        tokio::select! {
-            _ = sig_hangup.recv() => {}
-            _ = sig_alarm.recv() => {}
-            _ = sig_interrupt.recv() => {}
-            _ = sig_quit.recv() => {}
-            _ = sig_terminate.recv() => {}
+}
+
+impl ExitCheck {
+    fn init() -> ExitCheck {
+        let (tx, watch_rx) = watch::channel(false);
+
+        // 启动 drop check 任务
+        let join_handle = tokio::spawn(async move {
+            Self::await_exit_signal().await;
+
+            let _ = tx.send(true);
+
+            Self::await_exit_signal().await;
+
+            handler_second_time_exit_signal().await;
+        });
+
+        ExitCheck {
+            watch_rx,
+            join_handle,
         }
     }
 
-    if exit {
-        std::process::exit(1);
+    async fn await_exit_signal() {
+        #[cfg(unix)]
+        use tokio::signal::unix::{signal, SignalKind};
+        #[cfg(windows)]
+        use tokio::signal::windows;
+
+        #[cfg(windows)]
+        {
+            let mut sig_ctrl_break = windows::ctrl_break().unwrap();
+            let mut sig_ctrl_c = windows::ctrl_c().unwrap();
+            let mut sig_ctrl_close = windows::ctrl_close().unwrap();
+            let mut sig_ctrl_logoff = windows::ctrl_logoff().unwrap();
+            let mut sig_ctrl_shutdown = windows::ctrl_shutdown().unwrap();
+
+            tokio::select! {
+                _ = sig_ctrl_break.recv() => {}
+                _ = sig_ctrl_c.recv() => {}
+                _ = sig_ctrl_close.recv() => {}
+                _ = sig_ctrl_logoff.recv() => {}
+                _ = sig_ctrl_shutdown.recv() => {}
+            }
+        }
+
+        #[cfg(unix)]
+        {
+            let mut sig_hangup = signal(SignalKind::hangup()).unwrap();
+            let mut sig_alarm = signal(SignalKind::alarm()).unwrap();
+            let mut sig_interrupt = signal(SignalKind::interrupt()).unwrap();
+            let mut sig_quit = signal(SignalKind::quit()).unwrap();
+            let mut sig_terminate = signal(SignalKind::terminate()).unwrap();
+
+            tokio::select! {
+                _ = sig_hangup.recv() => {}
+                _ = sig_alarm.recv() => {}
+                _ = sig_interrupt.recv() => {}
+                _ = sig_quit.recv() => {}
+                _ = sig_terminate.recv() => {}
+            }
+        }
     }
+
+    pub async fn await_exit_signal_change(&self) {
+        let mut rx = self.watch_rx.clone();
+        rx.changed().await.unwrap();
+    }
+}
+
+pub(crate) async fn exit_signal_check(tx: Sender<InternalEvent>) {
+    DROP_CHECK.await_exit_signal_change().await;
 
     tx.send(InternalEvent::KoviEvent(KoviEvent::Drop))
         .await
         .unwrap();
+}
 
-    //递归运行本函数，第二次就会结束进程
-    Box::pin(drop_check(tx, true)).await;
+async fn handler_second_time_exit_signal() {
+    exit(1)
 }
