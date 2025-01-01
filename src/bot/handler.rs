@@ -150,7 +150,7 @@ impl Bot {
                 for (name, plugin) in bot_read.plugins.iter() {
                     // 判断是否黑白名单
                     #[cfg(feature = "plugin-access-control")]
-                    if is_access(plugin, &e) {
+                    if !is_access(plugin, &e) {
                         continue;
                     }
 

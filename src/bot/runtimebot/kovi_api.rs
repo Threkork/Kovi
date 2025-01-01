@@ -4,6 +4,7 @@ use crate::{
     error::BotError,
     Bot, PluginBuilder,
 };
+use serde::{Deserialize, Serialize};
 use std::{
     path::PathBuf,
     sync::{Arc, RwLock},
@@ -41,7 +42,7 @@ pub enum SetAccessControlList {
     Changes(Vec<i64>),
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Deserialize, Serialize)]
 pub enum AccessControlMode {
     BlackList,
     WhiteList,
