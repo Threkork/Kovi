@@ -4,11 +4,15 @@ use crate::{
     error::BotError,
     Bot, PluginBuilder,
 };
+use serde::{Deserialize, Serialize};
 use std::{
     path::PathBuf,
     sync::{Arc, RwLock},
 };
 use tokio::sync::mpsc;
+
+#[deprecated(since = "0.11.0", note = "弃用，直接删掉就好了")]
+pub trait KoviApi {}
 
 #[derive(Debug, Clone)]
 pub enum SetAdmin {
@@ -38,7 +42,7 @@ pub enum SetAccessControlList {
     Changes(Vec<i64>),
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Deserialize, Serialize)]
 pub enum AccessControlMode {
     BlackList,
     WhiteList,
