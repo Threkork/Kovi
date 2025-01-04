@@ -141,7 +141,7 @@ struct PluginStatus {
 #[derive(Debug, Clone)]
 pub struct BotInformation {
     pub main_admin: i64,
-    pub deputy_admins: Vec<i64>,
+    pub deputy_admins: HashSet<i64>,
     pub server: Server,
 }
 /// server信息
@@ -285,7 +285,7 @@ impl Bot {
         Bot {
             information: BotInformation {
                 main_admin: conf.config.main_admin,
-                deputy_admins: conf.config.admins.clone(),
+                deputy_admins: conf.config.admins.iter().cloned().collect(),
                 server: conf.server.clone(),
             },
             plugins: HashMap::<_, _, RandomState>::new(),

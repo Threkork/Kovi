@@ -176,9 +176,7 @@ impl RuntimeBot {
             }
             // 添加多个用户到名单
             (SetAccessControlList::Adds(ids), false) => {
-                for id in ids {
-                    plugin.access_list.friends.insert(id);
-                }
+                bot.information.deputy_admins.extend(ids.into_iter());
             }
             // 从名单中移除一个用户
             (SetAccessControlList::Remove(id), false) => {
@@ -186,9 +184,7 @@ impl RuntimeBot {
             }
             // 从名单中移除多个用户
             (SetAccessControlList::Removes(ids), false) => {
-                for id in ids {
-                    plugin.access_list.friends.remove(&id);
-                }
+                bot.information.deputy_admins.retain(|&x| !ids.contains(&x));
             }
             // 替换名单为新的用户列表
             (SetAccessControlList::Changes(ids), false) => {
@@ -216,11 +212,21 @@ impl RuntimeBot {
 
         let mut bot = bot.write().unwrap();
         match change {
-            SetAdmin::Add(id) => bot.information.deputy_admins.push(id),
-            SetAdmin::Adds(ids) => bot.information.deputy_admins.extend(ids),
-            SetAdmin::Remove(id) => bot.information.deputy_admins.retain(|&x| x != id),
-            SetAdmin::Removes(ids) => bot.information.deputy_admins.retain(|&x| !ids.contains(&x)),
-            SetAdmin::Changes(ids) => bot.information.deputy_admins = ids,
+            SetAdmin::Add(id) => {
+                bot.information.deputy_admins.insert(id);
+            }
+            SetAdmin::Adds(ids) => {
+                bot.information.deputy_admins.extend(ids.into_iter());
+            }
+            SetAdmin::Remove(id) => {
+                bot.information.deputy_admins.remove(&id);
+            }
+            SetAdmin::Removes(ids) => {
+                bot.information.deputy_admins.retain(|&x| !ids.contains(&x));
+            }
+            SetAdmin::Changes(ids) => {
+                bot.information.deputy_admins = ids.into_iter().collect();
+            }
         }
 
         Ok(())
@@ -255,7 +261,7 @@ impl RuntimeBot {
         };
 
         let ids = bot.read().unwrap().information.deputy_admins.clone();
-        Ok(ids)
+        Ok(ids.into_iter().collect())
     }
 
     /// 获取Bot的所有管理员
