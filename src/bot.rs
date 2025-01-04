@@ -4,7 +4,7 @@ use dialoguer::{Input, Select};
 use plugin_builder::Listen;
 use serde::{Deserialize, Serialize};
 use serde_json::{self, Value};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::env;
 use std::fmt::{Debug, Display};
 use std::future::Future;
@@ -108,17 +108,25 @@ pub(crate) struct BotPlugin {
 
 #[cfg(feature = "plugin-access-control")]
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
-pub(crate) struct AccessList {
-    pub(crate) friends: Vec<i64>,
-    pub(crate) groups: Vec<i64>,
+pub struct AccessList {
+    pub friends: HashSet<i64>,
+    pub groups: HashSet<i64>,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct PluginInfo {
     pub name: String,
     pub version: String,
+    /// 插件是否启用
     pub enabled: bool,
+    /// 插件是否在Bot启动时启用
     pub enable_on_startup: bool,
+    /// 插件是否启用框架级访问控制
+    pub access_control: bool,
+    /// 插件的访问控制模式
+    pub list_mode: AccessControlMode,
+    /// 插件的访问控制列表
+    pub access_list: AccessList,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -367,7 +375,7 @@ impl Bot {
                 return self;
             }
         };
-        let plugin_status_map: HashMap<String, PluginStatus> = match toml::from_str(&content) {
+        let mut plugin_status_map: HashMap<String, PluginStatus> = match toml::from_str(&content) {
             Ok(v) => v,
             Err(e) => {
                 log::debug!("Failed to parse toml: {}", e);
@@ -376,11 +384,11 @@ impl Bot {
         };
 
         for (name, plugin) in self.plugins.iter_mut() {
-            if let Some(plugin_status) = plugin_status_map.get(name) {
+            if let Some(plugin_status) = plugin_status_map.remove(name) {
                 plugin.enable_on_startup = plugin_status.enable_on_startup;
                 plugin.access_control = plugin_status.access_control;
                 plugin.list_mode = plugin_status.list_mode;
-                plugin.access_list = plugin_status.access_list.clone();
+                plugin.access_list = plugin_status.access_list;
             }
         }
 
@@ -404,7 +412,7 @@ impl Bot {
                 return;
             }
         };
-        let plugin_status_map: HashMap<String, PluginStatus> = match toml::from_str(&content) {
+        let mut plugin_status_map: HashMap<String, PluginStatus> = match toml::from_str(&content) {
             Ok(v) => v,
             Err(e) => {
                 log::debug!("Failed to parse toml: {}", e);
@@ -413,11 +421,11 @@ impl Bot {
         };
 
         for (name, plugin) in self.plugins.iter_mut() {
-            if let Some(plugin_status) = plugin_status_map.get(name) {
+            if let Some(plugin_status) = plugin_status_map.remove(name) {
                 plugin.enable_on_startup = plugin_status.enable_on_startup;
                 plugin.access_control = plugin_status.access_control;
                 plugin.list_mode = plugin_status.list_mode;
-                plugin.access_list = plugin_status.access_list.clone();
+                plugin.access_list = plugin_status.access_list;
             }
         }
     }
