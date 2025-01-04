@@ -147,33 +147,49 @@ impl RuntimeBot {
 
         match (change, is_group) {
             // 添加一个群组到名单
-            (SetAccessControlList::Add(id), true) => plugin.access_list.groups.push(id),
+            (SetAccessControlList::Add(id), true) => {
+                plugin.access_list.groups.insert(id);
+            }
             // 添加多个群组到名单
-            (SetAccessControlList::Adds(ids), true) => plugin.access_list.groups.extend(ids),
+            (SetAccessControlList::Adds(ids), true) => {
+                for id in ids {
+                    plugin.access_list.groups.insert(id);
+                }
+            }
             // 从名单中移除一个群组
             (SetAccessControlList::Remove(id), true) => {
-                plugin.access_list.groups.retain(|&x| x != id)
+                plugin.access_list.groups.remove(&id);
             }
             // 从名单中移除多个群组
             (SetAccessControlList::Removes(ids), true) => {
-                plugin.access_list.groups.retain(|&x| !ids.contains(&x))
+                for id in ids {
+                    plugin.access_list.groups.remove(&id);
+                }
             }
             // 替换名单为新的群组列表
-            (SetAccessControlList::Changes(ids), true) => plugin.access_list.groups = ids,
+            (SetAccessControlList::Changes(ids), true) => {
+                plugin.access_list.groups = ids.into_iter().collect();
+            }
             // 添加一个用户到名单
-            (SetAccessControlList::Add(id), false) => plugin.access_list.friends.push(id),
+            (SetAccessControlList::Add(id), false) => {
+                plugin.access_list.friends.insert(id);
+            }
             // 添加多个用户到名单
-            (SetAccessControlList::Adds(ids), false) => plugin.access_list.friends.extend(ids),
+            (SetAccessControlList::Adds(ids), false) => {
+                bot.information.deputy_admins.extend(ids.into_iter());
+            }
             // 从名单中移除一个用户
             (SetAccessControlList::Remove(id), false) => {
-                plugin.access_list.friends.retain(|&x| x != id)
+                plugin.access_list.friends.remove(&id);
             }
             // 从名单中移除多个用户
             (SetAccessControlList::Removes(ids), false) => {
-                plugin.access_list.friends.retain(|&x| !ids.contains(&x))
+                bot.information.deputy_admins.retain(|&x| !ids.contains(&x));
             }
             // 替换名单为新的用户列表
-            (SetAccessControlList::Changes(ids), false) => plugin.access_list.friends = ids,
+            (SetAccessControlList::Changes(ids), false) => {
+                plugin.access_list.friends = ids.into_iter().collect();
+            }
         }
 
         Ok(())
@@ -196,11 +212,21 @@ impl RuntimeBot {
 
         let mut bot = bot.write().unwrap();
         match change {
-            SetAdmin::Add(id) => bot.information.deputy_admins.push(id),
-            SetAdmin::Adds(ids) => bot.information.deputy_admins.extend(ids),
-            SetAdmin::Remove(id) => bot.information.deputy_admins.retain(|&x| x != id),
-            SetAdmin::Removes(ids) => bot.information.deputy_admins.retain(|&x| !ids.contains(&x)),
-            SetAdmin::Changes(ids) => bot.information.deputy_admins = ids,
+            SetAdmin::Add(id) => {
+                bot.information.deputy_admins.insert(id);
+            }
+            SetAdmin::Adds(ids) => {
+                bot.information.deputy_admins.extend(ids.into_iter());
+            }
+            SetAdmin::Remove(id) => {
+                bot.information.deputy_admins.remove(&id);
+            }
+            SetAdmin::Removes(ids) => {
+                bot.information.deputy_admins.retain(|&x| !ids.contains(&x));
+            }
+            SetAdmin::Changes(ids) => {
+                bot.information.deputy_admins = ids.into_iter().collect();
+            }
         }
 
         Ok(())
@@ -235,7 +261,7 @@ impl RuntimeBot {
         };
 
         let ids = bot.read().unwrap().information.deputy_admins.clone();
-        Ok(ids)
+        Ok(ids.into_iter().collect())
     }
 
     /// 获取Bot的所有管理员
@@ -297,6 +323,9 @@ impl RuntimeBot {
                 version: plugin.version.clone(),
                 enabled: *plugin.enabled.borrow(),
                 enable_on_startup: plugin.enable_on_startup,
+                access_control: plugin.access_control,
+                list_mode: plugin.list_mode,
+                access_list: plugin.access_list.clone(),
             })
             .collect();
 
