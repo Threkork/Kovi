@@ -291,6 +291,55 @@ impl MsgEvent {
         send_api_request_with_forget(&self.api_tx, send_msg);
     }
 
+    #[cfg(not(feature = "cqstring"))]
+    /// 快速回复消息并且**at**
+    pub fn reply_and_at<T>(&self, msg: T)
+    where
+        Message: From<T>,
+        T: Serialize,
+    {
+        let mut nickname = self.get_sender_nickname();
+        nickname.insert(0, ' ');
+        let id = &self.sender.user_id;
+
+        let msg = Message::from(msg).add_at(&id.to_string());
+        let send_msg = self.reply_builder(&msg, false);
+
+        let message_type = &self.message_type;
+        let group_id = match &self.group_id {
+            Some(v) => format!(" {v}"),
+            None => "".to_string(),
+        };
+        let human_msg = msg.to_human_string();
+        info!("[reply] [to {message_type}{group_id}{nickname} {id}]: {human_msg}");
+
+        send_api_request_with_forget(&self.api_tx, send_msg);
+    }
+
+    #[cfg(feature = "cqstring")]
+    /// 快速回复消息并且**at**
+    pub fn reply_and_at<T>(&self, msg: T)
+    where
+        CQMessage: From<T>,
+        T: Serialize,
+    {
+        let mut nickname = self.get_sender_nickname();
+        nickname.insert(0, ' ');
+        let id = &self.sender.user_id;
+
+        let msg = CQMessage::from(msg).add_at(&id.to_string());
+        let send_msg = self.reply_builder(&msg, false);
+
+        let message_type = &self.message_type;
+        let group_id = match &self.group_id {
+            Some(v) => format!(" {v}"),
+            None => "".to_string(),
+        };
+        let human_msg = Message::from(msg).to_human_string();
+        info!("[reply] [to {message_type}{group_id}{nickname} {id}]: {human_msg}");
+        send_api_request_with_forget(&self.api_tx, send_msg);
+    }
+
     #[cfg(feature = "cqstring")]
     /// 快速回复消息，并且**kovi不进行解析，直接发送此字符串**
     pub fn reply_text<T>(&self, msg: T)
