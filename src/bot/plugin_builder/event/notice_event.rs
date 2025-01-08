@@ -49,21 +49,21 @@ impl NoticeEvent {
 }
 
 impl NoticeEvent {
+    /// 直接从原始的 Json Value 获取某值
+    ///
+    /// # example
+    ///
+    /// ```rust
+    /// use kovi::PluginBuilder;
+    ///
+    /// PluginBuilder::on_notice(|event| async move {
+    ///     let time = event.get("time").and_then(|v| v.as_i64()).unwrap();
+    ///
+    ///     assert_eq!(time, event.time);
+    /// });
+    /// ```
     pub fn get<I: Index>(&self, index: I) -> Option<&Value> {
         self.original_json.get(index)
-    }
-
-    pub fn get_mut<I: Index>(&mut self, index: I) -> Option<&mut Value> {
-        self.original_json.get_mut(index)
-    }
-}
-
-impl<I> std::ops::IndexMut<I> for NoticeEvent
-where
-    I: Index,
-{
-    fn index_mut(&mut self, index: I) -> &mut Self::Output {
-        &mut self.original_json[index]
     }
 }
 

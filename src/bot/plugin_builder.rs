@@ -244,7 +244,7 @@ impl PluginBuilder {
     /// 注册消息处理函数。
     ///
     /// 注册一个处理程序，用于处理接收到的消息事件（`NoticeEvent`）。
-    pub fn on_all_notice<F, Fut>(handler: F)
+    pub fn on_notice<F, Fut>(handler: F)
     where
         F: Fn(Arc<NoticeEvent>) -> Fut + Send + Sync + 'static,
         Fut: Future + Send,
@@ -271,7 +271,7 @@ impl PluginBuilder {
     /// 注册异步消息处理函数。
     ///
     /// 注册一个处理程序，用于处理接收到的消息事件（`RequestEvent`）。
-    pub fn on_all_request<F, Fut>(handler: F)
+    pub fn on_request<F, Fut>(handler: F)
     where
         F: Fn(Arc<RequestEvent>) -> Fut + Send + Sync + 'static,
         Fut: Future + Send,
@@ -293,6 +293,32 @@ impl PluginBuilder {
                 }
             }));
         })
+    }
+
+    #[deprecated(note = "请使用 `on_notice` 代替")]
+    /// 注册消息处理函数。
+    ///
+    /// 注册一个处理程序，用于处理接收到的消息事件（`NoticeEvent`）。
+    pub fn on_all_notice<F, Fut>(handler: F)
+    where
+        F: Fn(Arc<NoticeEvent>) -> Fut + Send + Sync + 'static,
+        Fut: Future + Send,
+        Fut::Output: Send,
+    {
+        Self::on_notice(handler)
+    }
+
+    #[deprecated(note = "请使用 `on_request` 代替")]
+    /// 注册异步消息处理函数。
+    ///
+    /// 注册一个处理程序，用于处理接收到的消息事件（`RequestEvent`）。
+    pub fn on_all_request<F, Fut>(handler: F)
+    where
+        F: Fn(Arc<RequestEvent>) -> Fut + Send + Sync + 'static,
+        Fut: Future + Send,
+        Fut::Output: Send,
+    {
+        Self::on_request(handler)
     }
 
     /// 注册程序结束事件处理函数。
@@ -469,8 +495,8 @@ mod on_is_ture {
             PluginBuilder::on_admin_msg(|_| async {});
             PluginBuilder::on_group_msg(|_| async {});
             PluginBuilder::on_private_msg(|_| async {});
-            PluginBuilder::on_all_notice(|_| async {});
-            PluginBuilder::on_all_request(|_| async {});
+            PluginBuilder::on_notice(|_| async {});
+            PluginBuilder::on_request(|_| async {});
             PluginBuilder::drop(|| async {});
         }
 
