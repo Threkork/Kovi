@@ -55,21 +55,26 @@ impl Bot {
     }
 
     async fn handler_msg(bot: Arc<RwLock<Self>>, msg: String, api_tx: mpsc::Sender<ApiAndOneshot>) {
-        let msg_json: Value = serde_json::from_str(&msg).unwrap();
+        let msg_json: Value = match serde_json::from_str(&msg) {
+            Ok(json) => json,
+            Err(e) => {
+                error!("Failed to parse JSON from message: {}", e);
+                return;
+            }
+        };
 
         debug!("{msg_json}");
 
         if let Some(meta_event_type) = msg_json.get("meta_event_type") {
-            match meta_event_type.as_str().unwrap() {
-                // 生命周期一开始请求bot的信息
-                "lifecycle" => {
+            match meta_event_type.as_str() {
+                Some("lifecycle") => {
                     Self::handler_lifecycle(api_tx).await;
                     return;
                 }
-                "heartbeat" => {
+                Some("heartbeat") => {
                     return;
                 }
-                _ => {
+                Some(_) | None => {
                     return;
                 }
             }
@@ -83,7 +88,21 @@ impl Bot {
             AllRequest(RequestEvent),
         }
 
-        let event = match msg_json.get("post_type").unwrap().as_str().unwrap() {
+        let post_type = match msg_json.get("post_type") {
+            Some(value) => match value.as_str() {
+                Some(s) => s,
+                None => {
+                    error!("Invalid 'post_type' value in message JSON");
+                    return;
+                }
+            },
+            None => {
+                error!("Missing 'post_type' in message JSON");
+                return;
+            }
+        };
+
+        let event = match post_type {
             "message" => {
                 let e = match MsgEvent::new(api_tx, &msg) {
                     Ok(event) => event,
@@ -341,13 +360,26 @@ impl Bot {
             }
         };
 
-        let self_id = self_info_value
-            .data
-            .get("user_id")
-            .unwrap()
-            .as_i64()
-            .unwrap();
-        let self_name = self_info_value.data.get("nickname").unwrap().to_string();
+        let self_id = match self_info_value.data.get("user_id") {
+            Some(user_id) => match user_id.as_i64() {
+                Some(id) => id,
+                None => {
+                    error!("Expected 'user_id' to be an integer");
+                    return;
+                }
+            },
+            None => {
+                error!("Missing 'user_id' in self_info_value data");
+                return;
+            }
+        };
+        let self_name = match self_info_value.data.get("nickname") {
+            Some(nickname) => nickname.to_string(),
+            None => {
+                error!("Missing 'nickname' in self_info_value data");
+                return;
+            }
+        };
         info!(
             "Bot connection successful，Nickname:{},ID:{}",
             self_name, self_id

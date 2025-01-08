@@ -1,14 +1,28 @@
 pub use msg_event::MsgEvent;
+pub use notice_event::NoticeEvent;
+pub use request_event::RequestEvent;
 use serde::{Deserialize, Serialize};
-use serde_json::{self, Value};
+use thiserror::Error;
 
 pub mod msg_event;
+pub mod notice_event;
+pub mod request_event;
+
+#[deprecated(since = "0.11.0", note = "请使用 `MsgEvent` 代替")]
+pub type AllMsgEvent = MsgEvent;
 
 #[deprecated(since = "0.11.0", note = "请使用 `NoticeEvent` 代替")]
 pub type AllNoticeEvent = NoticeEvent;
 
 #[deprecated(since = "0.11.0", note = "请使用 `RequestEvent` 代替")]
 pub type AllRequestEvent = RequestEvent;
+
+#[derive(Error, Debug)]
+pub(crate) enum EventBuildError {
+    /// 解析出错
+    #[error("Parse error: {0}")]
+    ParseError(String),
+}
 
 #[derive(Debug, Copy, Clone)]
 pub enum Sex {
@@ -33,66 +47,4 @@ pub struct Anonymous {
     pub id: i64,
     pub name: String,
     pub flag: String,
-}
-
-#[derive(Debug, Clone)]
-pub struct NoticeEvent {
-    /// 事件发生的时间戳
-    pub time: i64,
-    /// 收到事件的机器人 登陆号
-    pub self_id: i64,
-    /// 上报类型
-    pub post_type: String,
-    /// 通知类型
-    pub notice_type: String,
-
-    /// 原始的onebot消息，已处理成json格式
-    pub original_json: Value,
-}
-impl NoticeEvent {
-    pub(crate) fn new(msg: &str) -> Result<NoticeEvent, Box<dyn std::error::Error>> {
-        let temp: Value = serde_json::from_str(msg)?;
-        let time = temp.get("time").unwrap().as_i64().unwrap();
-        let self_id = temp.get("self_id").unwrap().as_i64().unwrap();
-        let post_type = temp.get("post_type").unwrap().to_string();
-        let notice_type = temp.get("notice_type").unwrap().to_string();
-        Ok(NoticeEvent {
-            time,
-            self_id,
-            post_type,
-            notice_type,
-            original_json: temp,
-        })
-    }
-}
-
-#[derive(Debug, Clone)]
-pub struct RequestEvent {
-    /// 事件发生的时间戳
-    pub time: i64,
-    /// 收到事件的机器人 登陆号
-    pub self_id: i64,
-    /// 上报类型
-    pub post_type: String,
-    /// 请求类型
-    pub request_type: String,
-
-    /// 原始的onebot消息，已处理成json格式
-    pub original_json: Value,
-}
-impl RequestEvent {
-    pub(crate) fn new(msg: &str) -> Result<RequestEvent, Box<dyn std::error::Error>> {
-        let temp: Value = serde_json::from_str(msg)?;
-        let time = temp.get("time").unwrap().as_i64().unwrap();
-        let self_id = temp.get("self_id").unwrap().as_i64().unwrap();
-        let post_type = temp.get("post_type").unwrap().to_string();
-        let request_type = temp.get("request_type").unwrap().to_string();
-        Ok(RequestEvent {
-            time,
-            self_id,
-            post_type,
-            request_type,
-            original_json: temp,
-        })
-    }
 }
