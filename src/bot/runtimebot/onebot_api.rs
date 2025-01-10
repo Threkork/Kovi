@@ -641,7 +641,7 @@ impl RuntimeBot {
             AddRequestType::Type(v) => ("type", v),
         };
         let send_api = SendApi::new(
-            "set_friend_add_request",
+            "set_group_add_request",
             json!({
                 "flag":flag,
                     type_: type_value,
