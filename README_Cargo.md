@@ -50,7 +50,7 @@ fn main() {
 }
 ```
 
-On your first run, during `build_bot`, you'll be prompted to enter some information to create the `kovi.conf.json` file, which is required for Kovi to run.
+On your first run, during `build_bot`, you'll be prompted to enter some information to create the `kovi.conf.toml` file, which is required for Kovi to run.
 
 ```
 ✔ What is the type of the host of the OneBot server? · IPv4

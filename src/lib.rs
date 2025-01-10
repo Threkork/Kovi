@@ -1,7 +1,6 @@
 //! # Kovi
 //!
 //! A OneBot V11 bot framework developed using Rust.
-//! The project is in beta status.
 //!
 //! More documentation can be found at [Github-Kovi](https://github.com/Threkork/Kovi) Or [Kovi-doc](https://threkork.github.io/kovi-doc/)
 //!

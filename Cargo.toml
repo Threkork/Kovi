@@ -20,7 +20,7 @@ chrono = "0.4"
 dialoguer = { version = "0.11", features = ["fuzzy-select"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-thiserror = "1"
+thiserror = "2"
 log = "0.4"
 anstyle = "1"
 kovi-macros = "0.4"
@@ -29,7 +29,7 @@ env_logger = { version = "0.11", default-features = false, features = [
     "color",
 ], optional = true }
 tokio = { version = "1", features = ["full", "windows-sys"] }
-tokio-tungstenite = "0.24"
+tokio-tungstenite = "0.26"
 futures-util = "0.3"
 reqwest = { version = "0.12", features = ["blocking"] }
 toml = "0.8"
