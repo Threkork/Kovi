@@ -123,16 +123,22 @@ impl Bot {
                 info!("[{message_type}{group_id}{nickname} {id}]: {text}");
                 OneBotEvent::Msg(e)
             }
-            #[cfg(feature = "message_sent")]
+
             "message_sent" => {
-                let e = match MsgEvent::new(api_tx, &msg) {
-                    Ok(event) => event,
-                    Err(e) => {
-                        error!("{e}");
-                        return;
-                    }
-                };
-                OneBotEvent::MsgSent(e)
+                #[cfg(not(feature = "message_sent"))]
+                return;
+
+                #[cfg(feature = "message_sent")]
+                {
+                    let e = match MsgEvent::new(api_tx, &msg) {
+                        Ok(event) => event,
+                        Err(e) => {
+                            error!("{e}");
+                            return;
+                        }
+                    };
+                    OneBotEvent::MsgSent(e)
+                }
             }
             "notice" => {
                 let e = match NoticeEvent::new(&msg) {
@@ -180,18 +186,11 @@ impl Bot {
                         let event_clone = Arc::clone(&e);
                         let bot_clone = bot.clone();
                         let listen = listen.clone();
-                        let mut enabled = plugin.enabled.subscribe();
+                        let enabled = plugin.enabled.subscribe();
                         tokio::spawn(async move {
                             tokio::select! {
                                 _ = PLUGIN_NAME.scope(name, Self::handle_msg(listen, event_clone, bot_clone)) => {}
-                                _ = async {
-                                        loop {
-                                            enabled.changed().await.unwrap();
-                                            if !*enabled.borrow_and_update() {
-                                                break;
-                                            }
-                                        }
-                                } => {}
+                                _ = monitor_enabled_state(enabled) => {}
                             }
                         });
                     }
@@ -207,19 +206,12 @@ impl Bot {
                         let name = name_.clone();
                         let event_clone = Arc::clone(&e);
                         let listen = listen.clone();
-                        let mut enabled = plugin.enabled.subscribe();
+                        let enabled = plugin.enabled.subscribe();
 
                         tokio::spawn(async move {
                             tokio::select! {
                                 _ = PLUGIN_NAME.scope(name, Self::handler_msg_sent(listen,event_clone)) => {}
-                                _ = async {
-                                        loop {
-                                            enabled.changed().await.unwrap();
-                                            if !*enabled.borrow_and_update() {
-                                                break;
-                                            }
-                                        }
-                                } => {}
+                                _ = monitor_enabled_state(enabled) => {}
                             }
                         });
                     }
@@ -234,19 +226,12 @@ impl Bot {
                         let name = name_.clone();
                         let event_clone = Arc::clone(&e);
                         let listen = listen.clone();
-                        let mut enabled = plugin.enabled.subscribe();
+                        let enabled = plugin.enabled.subscribe();
 
                         tokio::spawn(async move {
                             tokio::select! {
                                 _ = PLUGIN_NAME.scope(name, Self::handler_notice(listen, event_clone)) => {}
-                                _ = async {
-                                        loop {
-                                            enabled.changed().await.unwrap();
-                                            if !*enabled.borrow_and_update() {
-                                                break;
-                                            }
-                                        }
-                                } => {}
+                                _ = monitor_enabled_state(enabled) => {}
                             }
                         });
                     }
@@ -261,20 +246,24 @@ impl Bot {
                         let name = name_.clone();
                         let event_clone = Arc::clone(&e);
                         let listen = listen.clone();
-                        let mut enabled = plugin.enabled.subscribe();
+                        let enabled = plugin.enabled.subscribe();
 
                         tokio::spawn(async move {
                             tokio::select! {
                                 _ = PLUGIN_NAME.scope(name, Self::handler_request(listen, event_clone)) => {}
-                                _ = async {
-                                        loop {
-                                            enabled.changed().await.unwrap();
-                                            if !*enabled.borrow_and_update() {
-                                                break;
-                                        }}} => {}
+                                _ = monitor_enabled_state(enabled) => {}
                             }
                         });
                     }
+                }
+            }
+        }
+
+        async fn monitor_enabled_state(mut enabled: watch::Receiver<bool>) {
+            loop {
+                enabled.changed().await.unwrap();
+                if !*enabled.borrow_and_update() {
+                    break;
                 }
             }
         }

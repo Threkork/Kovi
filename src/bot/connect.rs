@@ -110,27 +110,7 @@ impl Bot {
         let (_, read) = ws_stream.split();
 
         let mut bot_write = bot.write().unwrap();
-        bot_write.spawn(read.for_each(move |msg| {
-            let event_tx = event_tx.clone();
-            async {
-                match msg {
-                    Ok(msg) => {
-                        if !msg.is_text() {
-                            return;
-                        }
-
-                        let text = msg.to_text().unwrap();
-                        if let Err(e) = event_tx
-                            .send(InternalEvent::OneBotEvent(text.to_string()))
-                            .await
-                        {
-                            debug!("通道关闭：{e}")
-                        }
-                    }
-                    Err(e) => connection_failed_eprintln(e, event_tx).await,
-                }
-            }
-        }));
+        bot_write.spawn(ws_event_connect_read(read, event_tx));
     }
 
     pub(crate) async fn ws_send_api(
@@ -195,6 +175,39 @@ impl Bot {
             event_tx,
             api_tx_map.clone(),
         ));
+    }
+}
+
+async fn ws_event_connect_read(
+    read: SplitStream<WebSocketStream<MaybeTlsStream<TcpStream>>>,
+    event_tx: Sender<InternalEvent>,
+) {
+    read.for_each(|msg| {
+        let event_tx = event_tx.clone();
+        async {
+            match msg {
+                Ok(msg) => handle_msg(msg, event_tx).await,
+                Err(e) => connection_failed_eprintln(e, event_tx).await,
+            }
+        }
+    })
+    .await;
+
+    async fn handle_msg(
+        msg: tokio_tungstenite::tungstenite::Message,
+        event_tx: Sender<InternalEvent>,
+    ) {
+        if !msg.is_text() {
+            return;
+        }
+
+        let text = msg.to_text().unwrap();
+        if let Err(e) = event_tx
+            .send(InternalEvent::OneBotEvent(text.to_string()))
+            .await
+        {
+            debug!("通道关闭：{e}")
+        }
     }
 }
 
