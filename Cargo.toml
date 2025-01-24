@@ -51,5 +51,11 @@ plugin-access-control = []
 message_sent = []
 cqstring = []
 
+
 native-tls = ["tokio-tungstenite/native-tls-vendored"]
-rustls-tls = ["tokio-tungstenite/rustls-tls-native-roots"]
+# 兼容, 到0.12删除
+rustls-tls = ["tokio-tungstenite/rustls-tls-webpki-roots"]
+
+rustls-tls-webpki-roots = ["tokio-tungstenite/rustls-tls-webpki-roots"]
+
+rustls-tls-native-roots = ["tokio-tungstenite/rustls-tls-native-roots"]
