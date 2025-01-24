@@ -57,39 +57,34 @@ impl Bot {
             // 连接
             let connect_task = tokio::spawn({
                 let event_tx = event_tx.clone();
-                Self::ws_connect(
-                    server,
-                    api_rx,
-                    event_tx,
-                    bot.clone(),
-                )
+                Self::ws_connect(server, api_rx, event_tx, bot.clone())
             });
 
             let connect_res = connect_task.await.unwrap();
 
             if let Err(e) = connect_res {
-                error!("{e}\nBot connection failed, please check the configuration and restart KoviBot");
+                error!(
+                    "{e}\nBot connection failed, please check the configuration and restart the bot"
+                );
                 return;
             }
 
             {
-            let mut bot_write = bot.write().unwrap();
+                let mut bot_write = bot.write().unwrap();
 
-            // drop检测
-            bot_write.spawn({
-                let event_tx = event_tx;
-                exit_signal_check(event_tx)
-            });
+                // drop检测
+                bot_write.spawn({
+                    let event_tx = event_tx;
+                    exit_signal_check(event_tx)
+                });
 
-            // 运行所有的main
-            bot_write.spawn({
-                let bot = bot.clone();
-                let api_tx = api_tx.clone();
-                async move { Self::run_mains(bot, api_tx) }
-            });
+                // 运行所有的main
+                bot_write.spawn({
+                    let bot = bot.clone();
+                    let api_tx = api_tx.clone();
+                    async move { Self::run_mains(bot, api_tx) }
+                });
             }
-
-
 
             let mut drop_task = None;
             //处理事件，每个事件都会来到这里

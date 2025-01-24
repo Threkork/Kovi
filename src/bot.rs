@@ -386,6 +386,9 @@ impl Bot {
         for (name, plugin) in self.plugins.iter_mut() {
             if let Some(plugin_status) = plugin_status_map.remove(name) {
                 plugin.enable_on_startup = plugin_status.enable_on_startup;
+                plugin.enabled.send_modify(|v| {
+                    *v = plugin_status.enable_on_startup;
+                });
                 plugin.access_control = plugin_status.access_control;
                 plugin.list_mode = plugin_status.list_mode;
                 plugin.access_list = plugin_status.access_list;
@@ -423,6 +426,9 @@ impl Bot {
         for (name, plugin) in self.plugins.iter_mut() {
             if let Some(plugin_status) = plugin_status_map.remove(name) {
                 plugin.enable_on_startup = plugin_status.enable_on_startup;
+                plugin.enabled.send_modify(|v| {
+                    *v = plugin_status.enable_on_startup;
+                });
                 plugin.access_control = plugin_status.access_control;
                 plugin.list_mode = plugin_status.list_mode;
                 plugin.access_list = plugin_status.access_list;
@@ -433,7 +439,10 @@ impl Bot {
     /// 设置全部插件在Bot启动时的状态
     pub fn set_all_plugin_startup(mut self, enabled: bool) -> Self {
         for plugin in self.plugins.values_mut() {
-            plugin.enable_on_startup = enabled
+            plugin.enable_on_startup = enabled;
+            plugin.enabled.send_modify(|v| {
+                *v = enabled;
+            });
         }
         self
     }
@@ -441,7 +450,10 @@ impl Bot {
     /// 设置全部插件在Bot启动时的状态
     pub fn set_all_plugin_startup_ref(&mut self, enabled: bool) {
         for plugin in self.plugins.values_mut() {
-            plugin.enable_on_startup = enabled
+            plugin.enable_on_startup = enabled;
+            plugin.enabled.send_modify(|v| {
+                *v = enabled;
+            });
         }
     }
 
@@ -452,8 +464,11 @@ impl Bot {
         enabled: bool,
     ) -> Result<Self, BotError> {
         let name = name.as_ref();
-        if let Some(n) = self.plugins.get_mut(name) {
-            n.enable_on_startup = enabled;
+        if let Some(plugin) = self.plugins.get_mut(name) {
+            plugin.enable_on_startup = enabled;
+            plugin.enabled.send_modify(|v| {
+                *v = enabled;
+            });
             Ok(self)
         } else {
             Err(BotError::PluginNotFound(format!(
@@ -470,8 +485,11 @@ impl Bot {
         enabled: bool,
     ) -> Result<(), BotError> {
         let name = name.as_ref();
-        if let Some(n) = self.plugins.get_mut(name) {
-            n.enable_on_startup = enabled;
+        if let Some(plugin) = self.plugins.get_mut(name) {
+            plugin.enable_on_startup = enabled;
+            plugin.enabled.send_modify(|v| {
+                *v = enabled;
+            });
             Ok(())
         } else {
             Err(BotError::PluginNotFound(format!(
@@ -490,16 +508,23 @@ impl Bot {
             let mut plugin_status = HashMap::new();
             for (name, plugin) in self.plugins.iter() {
                 plugin_status.insert(name.clone(), PluginStatus {
-                    enable_on_startup: plugin.enable_on_startup,
+                    enable_on_startup: plugin.enabled.borrow().clone(),
                     access_control: plugin.access_control,
                     list_mode: plugin.list_mode,
                     access_list: plugin.access_list.clone(),
                 });
             }
 
-            let serialized =
-                toml::to_string(&plugin_status).expect("Failed to serialize plugin status");
-            fs::write(_file_path, serialized).expect("Failed to write plugin status to file");
+            let serialized = match toml::to_string(&plugin_status) {
+                Ok(s) => s,
+                Err(e) => {
+                    log::error!("Failed to serialize plugin status: {}", e);
+                    return;
+                }
+            };
+            if let Err(e) = fs::write(_file_path, serialized) {
+                log::error!("Failed to write plugin status to file: {}", e);
+            }
         }
 
         #[cfg(feature = "save_bot_admin")]
@@ -526,9 +551,17 @@ impl Bot {
                     .collect(),
             ));
 
-            let file = fs::File::create(file_path).unwrap();
-            let mut writer = std::io::BufWriter::new(file);
-            writer.write_all(doc.to_string().as_bytes()).unwrap();
+            match fs::File::create(file_path) {
+                Ok(file) => {
+                    let mut writer = std::io::BufWriter::new(file);
+                    if let Err(e) = writer.write_all(doc.to_string().as_bytes()) {
+                        log::error!("Failed to write to file: {}", e);
+                    }
+                }
+                Err(e) => {
+                    log::error!("Failed to create file: {}", e);
+                }
+            }
         }
     }
 }
