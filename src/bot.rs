@@ -490,16 +490,23 @@ impl Bot {
             let mut plugin_status = HashMap::new();
             for (name, plugin) in self.plugins.iter() {
                 plugin_status.insert(name.clone(), PluginStatus {
-                    enable_on_startup: plugin.enable_on_startup,
+                    enable_on_startup: plugin.enabled.borrow().clone(),
                     access_control: plugin.access_control,
                     list_mode: plugin.list_mode,
                     access_list: plugin.access_list.clone(),
                 });
             }
 
-            let serialized =
-                toml::to_string(&plugin_status).expect("Failed to serialize plugin status");
-            fs::write(_file_path, serialized).expect("Failed to write plugin status to file");
+            let serialized = match toml::to_string(&plugin_status) {
+                Ok(s) => s,
+                Err(e) => {
+                    log::error!("Failed to serialize plugin status: {}", e);
+                    return;
+                }
+            };
+            if let Err(e) = fs::write(_file_path, serialized) {
+                log::error!("Failed to write plugin status to file: {}", e);
+            }
         }
 
         #[cfg(feature = "save_bot_admin")]
@@ -526,9 +533,17 @@ impl Bot {
                     .collect(),
             ));
 
-            let file = fs::File::create(file_path).unwrap();
-            let mut writer = std::io::BufWriter::new(file);
-            writer.write_all(doc.to_string().as_bytes()).unwrap();
+            match fs::File::create(file_path) {
+                Ok(file) => {
+                    let mut writer = std::io::BufWriter::new(file);
+                    if let Err(e) = writer.write_all(doc.to_string().as_bytes()) {
+                        log::error!("Failed to write to file: {}", e);
+                    }
+                }
+                Err(e) => {
+                    log::error!("Failed to create file: {}", e);
+                }
+            }
         }
     }
 }

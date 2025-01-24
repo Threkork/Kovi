@@ -1,6 +1,6 @@
 [package]
 name = "kovi"
-version = "0.11.5"
+version = "0.11.6"
 edition = "2021"
 description = "A OneBot V11 bot plugin framework"
 license = "MPL-2.0"
@@ -31,7 +31,7 @@ env_logger = { version = "0.11", default-features = false, features = [
 tokio = { version = "1", features = ["full", "windows-sys"] }
 tokio-tungstenite = "0.24"
 futures-util = "0.3"
-reqwest = { version = "0.12", features = ["blocking"] }
+http = "1"
 toml = "0.8"
 toml_edit = "0.22"
 croner = "2"
@@ -51,11 +51,5 @@ plugin-access-control = []
 message_sent = []
 cqstring = []
 
-native-tls = [
-    "reqwest/native-tls-vendored",
-    "tokio-tungstenite/native-tls-vendored",
-]
-rustls-tls = [
-    "reqwest/rustls-tls-native-roots",
-    "tokio-tungstenite/rustls-tls-native-roots",
-]
+native-tls = ["tokio-tungstenite/native-tls-vendored"]
+rustls-tls = ["tokio-tungstenite/rustls-tls-native-roots"]
