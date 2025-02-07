@@ -1,10 +1,10 @@
 use crate::bot::*;
 use log::{debug, error, info, warn};
 #[cfg(feature = "message_sent")]
-use plugin_builder::AllMsgFn;
+use plugin_builder::MsgFn;
 use plugin_builder::{
     event::{MsgEvent, NoticeEvent, RequestEvent},
-    AllNoticeFn, AllRequestFn, ListenMsgFn, NoArgsFn,
+    ListenMsgFn, NoArgsFn, NoticeFn, RequestFn,
 };
 use serde_json::{json, Value};
 use std::sync::{Arc, RwLock};
@@ -306,15 +306,15 @@ impl Bot {
     }
 
     #[cfg(feature = "message_sent")]
-    async fn handler_msg_sent(listen: AllMsgFn, e: Arc<MsgEvent>) {
+    async fn handler_msg_sent(listen: MsgFn, e: Arc<MsgEvent>) {
         listen(e).await;
     }
 
-    async fn handler_notice(listen: AllNoticeFn, e: Arc<NoticeEvent>) {
+    async fn handler_notice(listen: NoticeFn, e: Arc<NoticeEvent>) {
         listen(e).await;
     }
 
-    async fn handler_request(listen: AllRequestFn, e: Arc<RequestEvent>) {
+    async fn handler_request(listen: RequestFn, e: Arc<RequestEvent>) {
         listen(e).await;
     }
 
