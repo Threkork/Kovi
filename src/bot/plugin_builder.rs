@@ -13,13 +13,13 @@ pub mod event;
 
 pub type PinFut = Pin<Box<dyn Future<Output = ()> + Send>>;
 
-pub type AllMsgFn = Arc<dyn Fn(Arc<MsgEvent>) -> PinFut + Send + Sync>;
+pub type MsgFn = Arc<dyn Fn(Arc<MsgEvent>) -> PinFut + Send + Sync>;
 
-pub type AsyncMsgFn = Arc<dyn Fn(Arc<AllMsgEvent>) -> PinFut + Send + Sync>;
+pub type AsyncMsgFn = Arc<dyn Fn(Arc<MsgEvent>) -> PinFut + Send + Sync>;
 
-pub type AllNoticeFn = Arc<dyn Fn(Arc<AllNoticeEvent>) -> PinFut + Send + Sync>;
+pub type NoticeFn = Arc<dyn Fn(Arc<NoticeEvent>) -> PinFut + Send + Sync>;
 
-pub type AllRequestFn = Arc<dyn Fn(Arc<RequestEvent>) -> PinFut + Send + Sync>;
+pub type RequestFn = Arc<dyn Fn(Arc<RequestEvent>) -> PinFut + Send + Sync>;
 
 pub type NoArgsFn = Arc<dyn Fn() -> PinFut + Send + Sync>;
 
@@ -27,18 +27,18 @@ pub type NoArgsFn = Arc<dyn Fn() -> PinFut + Send + Sync>;
 pub(crate) struct Listen {
     pub(crate) msg: Vec<Arc<ListenMsgFn>>,
     #[cfg(feature = "message_sent")]
-    pub(crate) msg_sent: Vec<AllMsgFn>,
-    pub(crate) notice: Vec<AllNoticeFn>,
-    pub(crate) request: Vec<AllRequestFn>,
+    pub(crate) msg_sent: Vec<MsgFn>,
+    pub(crate) notice: Vec<NoticeFn>,
+    pub(crate) request: Vec<RequestFn>,
     pub(crate) drop: Vec<NoArgsFn>,
 }
 
 #[derive(Clone)]
 pub(crate) enum ListenMsgFn {
-    Msg(AllMsgFn),
-    PrivateMsg(AllMsgFn),
-    GroupMsg(AllMsgFn),
-    AdminMsg(AllMsgFn),
+    Msg(MsgFn),
+    PrivateMsg(MsgFn),
+    GroupMsg(MsgFn),
+    AdminMsg(MsgFn),
 }
 
 impl Listen {
