@@ -100,10 +100,11 @@ impl PluginBuilder {
 }
 
 impl PluginBuilder {
-    // pub fn on_test<F>(handler: F)
+    // pub fn on_test<F, Fut>(handler: F)
     // where
-    //     F: AsyncFn(Arc<AllMsgEvent>) + Send + Sync + 'static,
-    //     F(..): Send,
+    //     F: Fn(Arc<MsgEvent>) -> Fut + Send + Sync + 'static,
+    //     Fut: Future + Send,
+    //     Fut::Output: Send,
     // {
     //     PLUGIN_BUILDER.with(|p| {
     //         let mut bot = p.bot.write().unwrap();
@@ -127,11 +128,10 @@ impl PluginBuilder {
     /// 注册消息处理函数。
     ///
     /// 注册一个处理程序，用于处理接收到的消息事件（`MsgEvent`）。
-    pub fn on_msg<F, Fut>(handler: F)
+    pub fn on_msg<F>(handler: F)
     where
-        F: Fn(Arc<MsgEvent>) -> Fut + Send + Sync + 'static,
-        Fut: Future + Send,
-        Fut::Output: Send,
+        F: AsyncFn(Arc<MsgEvent>) + Send + Sync + 'static,
+        for<'a> <F as AsyncFnMut<(Arc<MsgEvent>,)>>::CallRefFuture<'a>: std::marker::Send, // F(..): Send,
     {
         PLUGIN_BUILDER.with(|p| {
             let mut bot = p.bot.write().unwrap();
@@ -155,11 +155,10 @@ impl PluginBuilder {
     /// 注册管理员消息处理函数。
     ///
     /// 注册一个处理程序，用于处理接收到的消息事件（`MsgEvent`）。
-    pub fn on_admin_msg<F, Fut>(handler: F)
+    pub fn on_admin_msg<F>(handler: F)
     where
-        F: Fn(Arc<MsgEvent>) -> Fut + Send + Sync + 'static,
-        Fut: Future + Send,
-        Fut::Output: Send,
+        F: AsyncFn(Arc<MsgEvent>) + Send + Sync + 'static,
+        for<'a> <F as AsyncFnMut<(Arc<MsgEvent>,)>>::CallRefFuture<'a>: std::marker::Send, // F(..): Send,
     {
         PLUGIN_BUILDER.with(|p| {
             let mut bot = p.bot.write().unwrap();
@@ -185,11 +184,10 @@ impl PluginBuilder {
     /// 注册管理员消息处理函数。
     ///
     /// 注册一个处理程序，用于处理接收到的消息事件（`MsgEvent`）。
-    pub fn on_private_msg<F, Fut>(handler: F)
+    pub fn on_private_msg<F>(handler: F)
     where
-        F: Fn(Arc<MsgEvent>) -> Fut + Send + Sync + 'static,
-        Fut: Future + Send,
-        Fut::Output: Send,
+        F: AsyncFn(Arc<MsgEvent>) + Send + Sync + 'static,
+        for<'a> <F as AsyncFnMut<(Arc<MsgEvent>,)>>::CallRefFuture<'a>: std::marker::Send, // F(..): Send,
     {
         PLUGIN_BUILDER.with(|p| {
             let mut bot = p.bot.write().unwrap();
@@ -212,11 +210,10 @@ impl PluginBuilder {
         })
     }
 
-    pub fn on_group_msg<F, Fut>(handler: F)
+    pub fn on_group_msg<F>(handler: F)
     where
-        F: Fn(Arc<MsgEvent>) -> Fut + Send + Sync + 'static,
-        Fut: Future + Send,
-        Fut::Output: Send,
+        F: AsyncFn(Arc<MsgEvent>) + Send + Sync + 'static,
+        for<'a> <F as AsyncFnMut<(Arc<MsgEvent>,)>>::CallRefFuture<'a>: std::marker::Send, // F(..): Send,
     {
         PLUGIN_BUILDER.with(|p| {
             let mut bot = p.bot.write().unwrap();
@@ -241,11 +238,10 @@ impl PluginBuilder {
 
     #[cfg(feature = "message_sent")]
     /// 注册 message_sent 消息处理函数。
-    pub fn on_msg_send<F, Fut>(handler: F)
+    pub fn on_msg_send<F>(handler: F)
     where
-        F: Fn(Arc<MsgEvent>) -> Fut + Send + Sync + 'static,
-        Fut: Future + Send,
-        Fut::Output: Send,
+        F: AsyncFn(Arc<MsgEvent>) + Send + Sync + 'static,
+        for<'a> <F as AsyncFnMut<(Arc<MsgEvent>,)>>::CallRefFuture<'a>: std::marker::Send, // F(..): Send,
     {
         PLUGIN_BUILDER.with(|p| {
             let mut bot = p.runtime_bot.bot.write().unwrap();
@@ -268,11 +264,10 @@ impl PluginBuilder {
     /// 注册消息处理函数。
     ///
     /// 注册一个处理程序，用于处理接收到的消息事件（`NoticeEvent`）。
-    pub fn on_notice<F, Fut>(handler: F)
+    pub fn on_notice<F>(handler: F)
     where
-        F: Fn(Arc<NoticeEvent>) -> Fut + Send + Sync + 'static,
-        Fut: Future + Send,
-        Fut::Output: Send,
+        F: AsyncFn(Arc<NoticeEvent>) + Send + Sync + 'static,
+        for<'a> <F as AsyncFnMut<(Arc<NoticeEvent>,)>>::CallRefFuture<'a>: std::marker::Send, // F(..): Send,
     {
         PLUGIN_BUILDER.with(|p| {
             let mut bot = p.bot.write().unwrap();
@@ -295,11 +290,10 @@ impl PluginBuilder {
     /// 注册异步消息处理函数。
     ///
     /// 注册一个处理程序，用于处理接收到的消息事件（`RequestEvent`）。
-    pub fn on_request<F, Fut>(handler: F)
+    pub fn on_request<F>(handler: F)
     where
-        F: Fn(Arc<RequestEvent>) -> Fut + Send + Sync + 'static,
-        Fut: Future + Send,
-        Fut::Output: Send,
+        F: AsyncFn(Arc<RequestEvent>) + Send + Sync + 'static,
+        for<'a> <F as AsyncFnMut<(Arc<RequestEvent>,)>>::CallRefFuture<'a>: std::marker::Send, // F(..): Send,
     {
         PLUGIN_BUILDER.with(|p| {
             let mut bot = p.bot.write().unwrap();
@@ -325,9 +319,8 @@ impl PluginBuilder {
     /// 注册一个处理程序，用于处理接收到的消息事件（`NoticeEvent`）。
     pub fn on_all_notice<F, Fut>(handler: F)
     where
-        F: Fn(Arc<NoticeEvent>) -> Fut + Send + Sync + 'static,
-        Fut: Future + Send,
-        Fut::Output: Send,
+        F: AsyncFn(Arc<NoticeEvent>) + Send + Sync + 'static,
+        for<'a> <F as AsyncFnMut<(Arc<NoticeEvent>,)>>::CallRefFuture<'a>: std::marker::Send, // F(..): Send,
     {
         Self::on_notice(handler)
     }
@@ -336,11 +329,10 @@ impl PluginBuilder {
     /// 注册异步消息处理函数。
     ///
     /// 注册一个处理程序，用于处理接收到的消息事件（`RequestEvent`）。
-    pub fn on_all_request<F, Fut>(handler: F)
+    pub fn on_all_request<F>(handler: F)
     where
-        F: Fn(Arc<RequestEvent>) -> Fut + Send + Sync + 'static,
-        Fut: Future + Send,
-        Fut::Output: Send,
+        F: AsyncFn(Arc<RequestEvent>) + Send + Sync + 'static,
+        for<'a> <F as AsyncFnMut<(Arc<RequestEvent>,)>>::CallRefFuture<'a>: std::marker::Send, // F(..): Send,
     {
         Self::on_request(handler)
     }
