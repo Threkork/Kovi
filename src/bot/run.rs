@@ -57,37 +57,34 @@ impl Bot {
             // 连接
             let connect_task = tokio::spawn({
                 let event_tx = event_tx.clone();
-                Self::ws_connect(
-                    server,
-                    api_rx,
-                    event_tx,
-                    bot.clone(),
-                )
+                Self::ws_connect(server, api_rx, event_tx, bot.clone())
             });
 
             let connect_res = connect_task.await.unwrap();
 
             if let Err(e) = connect_res {
-                error!("{e}\nBot connection failed, please check the configuration and restart KoviBot");
+                error!(
+                    "{e}\nBot connection failed, please check the configuration and restart the bot"
+                );
                 return;
             }
 
-            let mut bot_write = bot.write().unwrap();
+            {
+                let mut bot_write = bot.write().unwrap();
 
-            // drop检测
-            bot_write.spawn({
-                let event_tx = event_tx;
-                exit_signal_check(event_tx)
-            });
+                // drop检测
+                bot_write.spawn({
+                    let event_tx = event_tx;
+                    exit_signal_check(event_tx)
+                });
 
-            // 运行所有的main
-            bot_write.spawn({
-                let bot = bot.clone();
-                let api_tx = api_tx.clone();
-                async move { Self::run_mains(bot, api_tx) }
-            });
-
-            drop(bot_write);
+                // 运行所有的main
+                bot_write.spawn({
+                    let bot = bot.clone();
+                    let api_tx = api_tx.clone();
+                    async move { Self::run_mains(bot, api_tx) }
+                });
+            }
 
             let mut drop_task = None;
             //处理事件，每个事件都会来到这里
@@ -119,10 +116,8 @@ impl Bot {
         let bot_ = bot.read().unwrap();
         let main_job_map = bot_.plugins.borrow();
 
-        let (main_admin, admin, host, port) = {
+        let (host, port) = {
             (
-                bot_.information.main_admin,
-                bot_.information.admin.clone(),
                 bot_.information.server.host.clone(),
                 bot_.information.server.port,
             )
@@ -135,8 +130,6 @@ impl Bot {
             let plugin_builder = PluginBuilder::new(
                 name.clone(),
                 bot.clone(),
-                main_admin,
-                admin.clone(),
                 host.clone(),
                 port,
                 api_tx.clone(),
@@ -195,7 +188,8 @@ impl ExitCheck {
             let _ = tx.send(true);
 
             Self::await_exit_signal().await;
-            exit(1);
+
+            handler_second_time_exit_signal().await;
         });
 
         ExitCheck {
@@ -257,4 +251,8 @@ pub(crate) async fn exit_signal_check(tx: Sender<InternalEvent>) {
     tx.send(InternalEvent::KoviEvent(KoviEvent::Drop))
         .await
         .unwrap();
+}
+
+async fn handler_second_time_exit_signal() {
+    exit(1)
 }

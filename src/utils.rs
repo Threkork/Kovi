@@ -79,3 +79,14 @@ where
     save_data(serialized_data.as_bytes(), file_path.as_ref())?;
     Ok(())
 }
+
+/// 计算pskey值
+pub fn calculate_pskey(skey: &str) -> u32 {
+    let mut hash: u32 = 5381;
+    for character in skey.chars() {
+        hash = (hash << 5)
+            .wrapping_add(hash)
+            .wrapping_add(character as u32);
+    }
+    hash & 0x7fffffff
+}

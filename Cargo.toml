@@ -1,6 +1,6 @@
 [package]
 name = "kovi"
-version = "0.11.0"
+version = "1.0.0"
 edition = "2021"
 description = "A OneBot V11 bot plugin framework"
 license = "MPL-2.0"
@@ -20,7 +20,7 @@ chrono = "0.4"
 dialoguer = { version = "0.11", features = ["fuzzy-select"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-thiserror = "1"
+thiserror = "2"
 log = "0.4"
 anstyle = "1"
 kovi-macros = "0.4"
@@ -29,9 +29,9 @@ env_logger = { version = "0.11", default-features = false, features = [
     "color",
 ], optional = true }
 tokio = { version = "1", features = ["full", "windows-sys"] }
-tokio-tungstenite = "0.24"
+tokio-tungstenite = "0.26"
 futures-util = "0.3"
-reqwest = { version = "0.12", features = ["blocking"] }
+http = "1"
 toml = "0.8"
 toml_edit = "0.22"
 croner = "2"
@@ -41,20 +41,22 @@ parking_lot = "0.12"
 
 
 [features]
-default = ["logger"]
+default = ["logger", "save_bot_status", "plugin-access-control"]
 logger = ["env_logger"]
-cqstring = []
+save_bot_status = ["save_bot_admin", "save_plugin_status"]
+save_bot_admin = []
+save_plugin_status = []
+plugin-access-control = []
+
 message_sent = []
-native-tls = [
-    "reqwest/native-tls-vendored",
-    "tokio-tungstenite/native-tls-vendored",
-]
-rustls-tls = [
-    
-    "reqwest/rustls-tls-native-roots",
-   
-    "tokio-tungstenite/rustls-tls-native-roots",
-]
+
+cqstring = []
+
+native-tls = ["tokio-tungstenite/native-tls-vendored"]
+
+rustls-tls-webpki-roots = ["tokio-tungstenite/rustls-tls-webpki-roots"]
+
+rustls-tls-native-roots = ["tokio-tungstenite/rustls-tls-native-roots"]
 
 [package.metadata]
 rust-version = "nightly"

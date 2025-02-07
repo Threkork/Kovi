@@ -3,7 +3,6 @@
 //! # Kovi
 //!
 //! A OneBot V11 bot framework developed using Rust.
-//! The project is in beta status.
 //!
 //! More documentation can be found at [Github-Kovi](https://github.com/Threkork/Kovi) Or [Kovi-doc](https://threkork.github.io/kovi-doc/)
 //!
@@ -13,15 +12,14 @@
 pub mod bot;
 pub mod error;
 pub mod logger;
-pub mod mpsc;
 pub mod task;
 /// 提供一些方便的插件开发函数
 pub mod utils;
 
 pub use bot::message::Message;
-pub use bot::plugin_builder::event::AllMsgEvent;
-pub use bot::plugin_builder::event::AllNoticeEvent;
-pub use bot::plugin_builder::event::AllRequestEvent;
+pub use bot::plugin_builder::event::MsgEvent;
+pub use bot::plugin_builder::event::NoticeEvent;
+pub use bot::plugin_builder::event::RequestEvent;
 pub use bot::plugin_builder::PluginBuilder;
 pub use bot::runtimebot::RuntimeBot;
 pub use bot::ApiReturn;
@@ -29,6 +27,13 @@ pub use bot::Bot;
 pub use error::MessageError;
 pub use kovi_macros::plugin;
 pub use task::spawn;
+
+#[deprecated(since = "0.11.0", note = "请使用 `MsgEvent` 代替")]
+pub type AllMsgEvent = bot::plugin_builder::event::MsgEvent;
+#[deprecated(since = "0.11.0", note = "请使用 `NoticeEvent` 代替")]
+pub type AllNoticeEvent = bot::plugin_builder::event::NoticeEvent;
+#[deprecated(since = "0.11.0", note = "请使用 `RequestEvent` 代替")]
+pub type AllRequestEvent = bot::plugin_builder::event::RequestEvent;
 
 pub use chrono;
 pub use croner;

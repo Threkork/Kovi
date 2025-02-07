@@ -4,7 +4,7 @@ use dialoguer::{Input, Select};
 use plugin_builder::Listen;
 use serde::{Deserialize, Serialize};
 use serde_json::{self, Value};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::env;
 use std::fmt::{Debug, Display};
 use std::future::Future;
@@ -18,6 +18,9 @@ use tokio::task::JoinHandle;
 
 use crate::error::{BotBuildError, BotError};
 use crate::task::TASK_MANAGER;
+
+pub use crate::bot::runtimebot::kovi_api::AccessControlMode;
+
 pub(crate) mod connect;
 pub(crate) mod handler;
 pub(crate) mod run;
@@ -35,13 +38,19 @@ tokio::task_local! {
 }
 
 /// kovi的配置
-#[derive(Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct KoviConf {
     pub config: Config,
     pub server: Server,
 }
 
-#[derive(Deserialize, Serialize)]
+impl AsRef<KoviConf> for KoviConf {
+    fn as_ref(&self) -> &KoviConf {
+        self
+    }
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct Config {
     pub main_admin: i64,
     pub admins: Vec<i64>,
@@ -75,26 +84,64 @@ impl Drop for Bot {
 #[derive(Clone)]
 pub struct Bot {
     pub information: BotInformation,
-    pub plugins: HashMap<String, BotPlugin, RandomState>,
+    pub(crate) plugins: HashMap<String, BotPlugin, RandomState>,
     pub(crate) run_abort: Vec<tokio::task::AbortHandle>,
 }
 
 #[derive(Clone)]
-pub struct BotPlugin {
+pub(crate) struct BotPlugin {
     pub(crate) enable_on_startup: bool,
     pub(crate) enabled: watch::Sender<bool>,
 
-    pub name: String,
-    pub version: String,
+    pub(crate) name: String,
+    pub(crate) version: String,
     pub(crate) main: Arc<KoviAsyncFn>,
     pub(crate) listen: Listen,
+
+    #[cfg(feature = "plugin-access-control")]
+    pub(crate) access_control: bool,
+    #[cfg(feature = "plugin-access-control")]
+    pub(crate) list_mode: AccessControlMode,
+    #[cfg(feature = "plugin-access-control")]
+    pub(crate) access_list: AccessList,
+}
+
+#[cfg(feature = "plugin-access-control")]
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+pub struct AccessList {
+    pub friends: HashSet<i64>,
+    pub groups: HashSet<i64>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct PluginInfo {
+    pub name: String,
+    pub version: String,
+    /// 插件是否启用
+    pub enabled: bool,
+    /// 插件是否在Bot启动时启用
+    pub enable_on_startup: bool,
+    /// 插件是否启用框架级访问控制
+    pub access_control: bool,
+    /// 插件的访问控制模式
+    pub list_mode: AccessControlMode,
+    /// 插件的访问控制列表
+    pub access_list: AccessList,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+struct PluginStatus {
+    enable_on_startup: bool,
+    access_control: bool,
+    list_mode: AccessControlMode,
+    access_list: AccessList,
 }
 
 /// bot信息结构体
 #[derive(Debug, Clone)]
 pub struct BotInformation {
     pub main_admin: i64,
-    pub admin: Vec<i64>,
+    pub deputy_admins: HashSet<i64>,
     pub server: Server,
 }
 /// server信息
@@ -181,11 +228,7 @@ impl SendApi {
 
 impl BotPlugin {
     fn shutdown(&mut self) -> JoinHandle<()> {
-        log::info!(
-            "Plugin '{}' is dropping. 插件 '{}' 正在做清理。",
-            self.name,
-            self.name
-        );
+        log::debug!("Plugin '{}' is dropping.", self.name,);
 
         let plugin_name_ = Arc::new(self.name.clone());
 
@@ -229,22 +272,28 @@ impl Bot {
     ///         access_token: "",
     ///     },
     ///     false,
+    ///     None,
     /// );
     /// let bot = Bot::build(conf);
     /// bot.run()
     /// ```
-    pub fn build(conf: KoviConf) -> Bot {
+    pub fn build<C>(conf: C) -> Bot
+    where
+        C: AsRef<KoviConf>,
+    {
+        let conf = conf.as_ref();
         Bot {
             information: BotInformation {
                 main_admin: conf.config.main_admin,
-                admin: conf.config.admins,
-                server: conf.server,
+                deputy_admins: conf.config.admins.iter().cloned().collect(),
+                server: conf.server.clone(),
             },
             plugins: HashMap::<_, _, RandomState>::new(),
             run_abort: Vec::new(),
         }
     }
 
+    /// 挂载插件的启动函数。
     pub fn mount_main<T>(&mut self, name: T, version: T, main: Arc<KoviAsyncFn>)
     where
         String: From<T>,
@@ -259,10 +308,18 @@ impl Bot {
             version,
             main,
             listen: Listen::default(),
+
+            #[cfg(feature = "plugin-access-control")]
+            access_control: false,
+            #[cfg(feature = "plugin-access-control")]
+            list_mode: AccessControlMode::WhiteList,
+            #[cfg(feature = "plugin-access-control")]
+            access_list: AccessList::default(),
         };
         self.plugins.insert(name, bot_plugin);
     }
 
+    /// 读取本地Kovi.conf.toml文件
     pub fn load_local_conf() -> Result<KoviConf, BotBuildError> {
         //检测文件是kovi.conf.json还是kovi.conf.toml
         let kovi_conf_file_exist = fs::metadata("kovi.conf.toml").is_ok();
@@ -301,27 +358,117 @@ impl Bot {
 }
 
 impl Bot {
+    /// 使用KoviConf设置插件在Bot启动时的状态
+    ///
+    /// 如果配置文件中没有对应的插件，将会被忽略，保留插件默认状态
+    ///
+    /// 如果配置文件读取失败或者解析toml失败，将会保留插件默认状态
+    pub fn set_plugin_startup_use_file(mut self) -> Self {
+        let file_path = "kovi.plugin.toml";
+        let content = match fs::read_to_string(file_path) {
+            Ok(v) => {
+                log::debug!("Set plugin startup use file successfully");
+                v
+            }
+            Err(e) => {
+                log::debug!("Failed to read file: {}", e);
+                return self;
+            }
+        };
+        let mut plugin_status_map: HashMap<String, PluginStatus> = match toml::from_str(&content) {
+            Ok(v) => v,
+            Err(e) => {
+                log::debug!("Failed to parse toml: {}", e);
+                return self;
+            }
+        };
+
+        for (name, plugin) in self.plugins.iter_mut() {
+            if let Some(plugin_status) = plugin_status_map.remove(name) {
+                plugin.enable_on_startup = plugin_status.enable_on_startup;
+                plugin.enabled.send_modify(|v| {
+                    *v = plugin_status.enable_on_startup;
+                });
+                plugin.access_control = plugin_status.access_control;
+                plugin.list_mode = plugin_status.list_mode;
+                plugin.access_list = plugin_status.access_list;
+            }
+        }
+
+        self
+    }
+
+    /// 使用KoviConf设置插件在Bot启动时的状态
+    ///
+    /// 如果配置文件中没有对应的插件，将会被忽略，保留插件默认状态
+    ///
+    /// 如果配置文件读取失败或者解析toml失败，将会保留插件默认状态
+    pub fn set_plugin_startup_use_file_ref(&mut self) {
+        let file_path = "kovi.plugin.toml";
+        let content = match fs::read_to_string(file_path) {
+            Ok(v) => {
+                log::debug!("Set plugin startup use file successfully");
+                v
+            }
+            Err(e) => {
+                log::debug!("Failed to read file: {}", e);
+                return;
+            }
+        };
+        let mut plugin_status_map: HashMap<String, PluginStatus> = match toml::from_str(&content) {
+            Ok(v) => v,
+            Err(e) => {
+                log::debug!("Failed to parse toml: {}", e);
+                return;
+            }
+        };
+
+        for (name, plugin) in self.plugins.iter_mut() {
+            if let Some(plugin_status) = plugin_status_map.remove(name) {
+                plugin.enable_on_startup = plugin_status.enable_on_startup;
+                plugin.enabled.send_modify(|v| {
+                    *v = plugin_status.enable_on_startup;
+                });
+                plugin.access_control = plugin_status.access_control;
+                plugin.list_mode = plugin_status.list_mode;
+                plugin.access_list = plugin_status.access_list;
+            }
+        }
+    }
+
+    /// 设置全部插件在Bot启动时的状态
     pub fn set_all_plugin_startup(mut self, enabled: bool) -> Self {
         for plugin in self.plugins.values_mut() {
-            plugin.enable_on_startup = enabled
+            plugin.enable_on_startup = enabled;
+            plugin.enabled.send_modify(|v| {
+                *v = enabled;
+            });
         }
         self
     }
 
+    /// 设置全部插件在Bot启动时的状态
     pub fn set_all_plugin_startup_ref(&mut self, enabled: bool) {
         for plugin in self.plugins.values_mut() {
-            plugin.enable_on_startup = enabled
+            plugin.enable_on_startup = enabled;
+            plugin.enabled.send_modify(|v| {
+                *v = enabled;
+            });
         }
     }
 
+    /// 设置单个插件在Bot启动时的状态
     pub fn set_plugin_startup<T: AsRef<str>>(
         mut self,
         name: T,
         enabled: bool,
     ) -> Result<Self, BotError> {
         let name = name.as_ref();
-        if let Some(n) = self.plugins.get_mut(name) {
-            n.enable_on_startup = enabled;
+        if let Some(plugin) = self.plugins.get_mut(name) {
+            plugin.enable_on_startup = enabled;
+            plugin.enabled.send_modify(|v| {
+                *v = enabled;
+            });
             Ok(self)
         } else {
             Err(BotError::PluginNotFound(format!(
@@ -331,20 +478,90 @@ impl Bot {
         }
     }
 
+    /// 设置单个插件在Bot启动时的状态
     pub fn set_plugin_startup_ref<T: AsRef<str>>(
         &mut self,
         name: T,
         enabled: bool,
     ) -> Result<(), BotError> {
         let name = name.as_ref();
-        if let Some(n) = self.plugins.get_mut(name) {
-            n.enable_on_startup = enabled;
+        if let Some(plugin) = self.plugins.get_mut(name) {
+            plugin.enable_on_startup = enabled;
+            plugin.enabled.send_modify(|v| {
+                *v = enabled;
+            });
             Ok(())
         } else {
             Err(BotError::PluginNotFound(format!(
                 "Plugin {} not found",
                 name
             )))
+        }
+    }
+
+    #[cfg(any(feature = "save_plugin_status", feature = "save_bot_admin"))]
+    pub(crate) fn save_bot_status(&self) {
+        #[cfg(feature = "save_plugin_status")]
+        {
+            let _file_path = "kovi.plugin.toml";
+
+            let mut plugin_status = HashMap::new();
+            for (name, plugin) in self.plugins.iter() {
+                plugin_status.insert(name.clone(), PluginStatus {
+                    enable_on_startup: plugin.enabled.borrow().clone(),
+                    access_control: plugin.access_control,
+                    list_mode: plugin.list_mode,
+                    access_list: plugin.access_list.clone(),
+                });
+            }
+
+            let serialized = match toml::to_string(&plugin_status) {
+                Ok(s) => s,
+                Err(e) => {
+                    log::error!("Failed to serialize plugin status: {}", e);
+                    return;
+                }
+            };
+            if let Err(e) = fs::write(_file_path, serialized) {
+                log::error!("Failed to write plugin status to file: {}", e);
+            }
+        }
+
+        #[cfg(feature = "save_bot_admin")]
+        {
+            let file_path = "kovi.conf.toml";
+            let existing_content = fs::read_to_string(file_path).unwrap_or_default();
+
+            let mut doc = existing_content
+                .parse::<toml_edit::DocumentMut>()
+                .unwrap_or_else(|_| toml_edit::DocumentMut::new());
+
+            // 确保 "config" 存在
+            if !doc.contains_key("config") {
+                doc["config"] = toml_edit::table();
+            }
+
+            // 更新 "config" 中的 admin 信息
+            doc["config"]["main_admin"] = toml_edit::value(self.information.main_admin);
+            doc["config"]["admins"] = toml_edit::Item::Value(toml_edit::Value::Array(
+                self.information
+                    .deputy_admins
+                    .iter()
+                    .map(|&x| toml_edit::Value::from(x))
+                    .collect(),
+            ));
+
+            match fs::File::create(file_path) {
+                Ok(file) => {
+                    let mut writer = std::io::BufWriter::new(file);
+                    if let Err(e) = writer.write_all(doc.to_string().as_bytes()) {
+                        log::error!("Failed to write to file: {}", e);
+                    }
+                }
+                Err(e) => {
+                    log::error!("Failed to create file: {}", e);
+                }
+            }
         }
     }
 }
@@ -506,7 +723,7 @@ macro_rules! build_bot {
                 }
             };
             kovi::logger::try_set_logger();
-            let mut bot = kovi::bot::Bot::build(conf);
+            let mut bot = kovi::bot::Bot::build(&conf);
 
             $(
                 let (crate_name, crate_version) = $plugin::__kovi_get_plugin_info();
@@ -514,6 +731,7 @@ macro_rules! build_bot {
                 bot.mount_main(crate_name, crate_version, std::sync::Arc::new($plugin::__kovi_run_async_plugin));
             )*
 
+            bot.set_plugin_startup_use_file_ref();
             bot
         }
     };
