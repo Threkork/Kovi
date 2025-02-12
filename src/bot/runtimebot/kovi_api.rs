@@ -4,6 +4,7 @@ use crate::{
     error::BotError,
     Bot, PluginBuilder,
 };
+#[cfg(feature = "plugin-access-control")]
 use serde::{Deserialize, Serialize};
 use std::{
     path::PathBuf,
@@ -28,6 +29,7 @@ pub enum SetAdmin {
     Changes(Vec<i64>),
 }
 
+#[cfg(feature = "plugin-access-control")]
 #[derive(Debug, Clone)]
 pub enum SetAccessControlList {
     /// 增加一个名单
@@ -42,6 +44,7 @@ pub enum SetAccessControlList {
     Changes(Vec<i64>),
 }
 
+#[cfg(feature = "plugin-access-control")]
 #[derive(Debug, Clone, Copy, Deserialize, Serialize)]
 pub enum AccessControlMode {
     BlackList,
@@ -323,8 +326,11 @@ impl RuntimeBot {
                 version: plugin.version.clone(),
                 enabled: *plugin.enabled.borrow(),
                 enable_on_startup: plugin.enable_on_startup,
+                #[cfg(feature = "plugin-access-control")]
                 access_control: plugin.access_control,
+                #[cfg(feature = "plugin-access-control")]
                 list_mode: plugin.list_mode,
+                #[cfg(feature = "plugin-access-control")]
                 access_list: plugin.access_list.clone(),
             })
             .collect();

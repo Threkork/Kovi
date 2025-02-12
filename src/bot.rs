@@ -19,6 +19,7 @@ use tokio::task::JoinHandle;
 use crate::error::{BotBuildError, BotError};
 use crate::task::TASK_MANAGER;
 
+#[cfg(feature = "plugin-access-control")]
 pub use crate::bot::runtimebot::kovi_api::AccessControlMode;
 
 pub(crate) mod connect;
@@ -122,18 +123,24 @@ pub struct PluginInfo {
     /// 插件是否在Bot启动时启用
     pub enable_on_startup: bool,
     /// 插件是否启用框架级访问控制
+    #[cfg(feature = "plugin-access-control")]
     pub access_control: bool,
     /// 插件的访问控制模式
+    #[cfg(feature = "plugin-access-control")]
     pub list_mode: AccessControlMode,
     /// 插件的访问控制列表
+    #[cfg(feature = "plugin-access-control")]
     pub access_list: AccessList,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 struct PluginStatus {
     enable_on_startup: bool,
+    #[cfg(feature = "plugin-access-control")]
     access_control: bool,
+    #[cfg(feature = "plugin-access-control")]
     list_mode: AccessControlMode,
+    #[cfg(feature = "plugin-access-control")]
     access_list: AccessList,
 }
 
@@ -389,9 +396,12 @@ impl Bot {
                 plugin.enabled.send_modify(|v| {
                     *v = plugin_status.enable_on_startup;
                 });
-                plugin.access_control = plugin_status.access_control;
-                plugin.list_mode = plugin_status.list_mode;
-                plugin.access_list = plugin_status.access_list;
+                #[cfg(feature = "plugin-access-control")]
+                {
+                    plugin.access_control = plugin_status.access_control;
+                    plugin.list_mode = plugin_status.list_mode;
+                    plugin.access_list = plugin_status.access_list;
+                }
             }
         }
 
@@ -429,9 +439,12 @@ impl Bot {
                 plugin.enabled.send_modify(|v| {
                     *v = plugin_status.enable_on_startup;
                 });
-                plugin.access_control = plugin_status.access_control;
-                plugin.list_mode = plugin_status.list_mode;
-                plugin.access_list = plugin_status.access_list;
+                #[cfg(feature = "plugin-access-control")]
+                {
+                    plugin.access_control = plugin_status.access_control;
+                    plugin.list_mode = plugin_status.list_mode;
+                    plugin.access_list = plugin_status.access_list;
+                }
             }
         }
     }
@@ -509,8 +522,11 @@ impl Bot {
             for (name, plugin) in self.plugins.iter() {
                 plugin_status.insert(name.clone(), PluginStatus {
                     enable_on_startup: plugin.enabled.borrow().clone(),
+                    #[cfg(feature = "plugin-access-control")]
                     access_control: plugin.access_control,
+                    #[cfg(feature = "plugin-access-control")]
                     list_mode: plugin.list_mode,
+                    #[cfg(feature = "plugin-access-control")]
                     access_list: plugin.access_list.clone(),
                 });
             }
