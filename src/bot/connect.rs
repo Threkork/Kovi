@@ -5,10 +5,9 @@ use futures_util::stream::{SplitSink, SplitStream};
 use futures_util::{SinkExt, StreamExt};
 use http::HeaderValue;
 use log::{debug, error, warn};
-use parking_lot::Mutex;
+use parking_lot::{Mutex, RwLock};
 use std::error::Error;
 use std::fmt::Display;
-use std::sync::RwLock;
 use std::{collections::HashMap, net::IpAddr, sync::Arc};
 use tokio::net::TcpStream;
 use tokio::sync::mpsc::Sender;
@@ -41,7 +40,7 @@ impl Bot {
         ) = oneshot::channel();
 
         {
-            let mut bot_write = bot.write().unwrap();
+            let mut bot_write = bot.write();
             bot_write.spawn(Self::ws_event_connect(
                 server.clone(),
                 event_tx.clone(),
@@ -109,7 +108,7 @@ impl Bot {
 
         let (_, read) = ws_stream.split();
 
-        let mut bot_write = bot.write().unwrap();
+        let mut bot_write = bot.write();
         bot_write.spawn(ws_event_connect_read(read, event_tx));
     }
 
@@ -159,7 +158,7 @@ impl Bot {
         let (write, read) = ws_stream.split();
         let api_tx_map: ApiTxMap = Arc::new(Mutex::new(HashMap::<_, _, RandomState>::new()));
 
-        let mut bot_write = bot.write().unwrap();
+        let mut bot_write = bot.write();
 
         //读
         bot_write.spawn(ws_send_api_read(

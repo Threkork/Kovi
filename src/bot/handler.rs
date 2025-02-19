@@ -1,5 +1,6 @@
 use crate::bot::*;
 use log::{debug, error, info, warn};
+use parking_lot::RwLock;
 #[cfg(feature = "message_sent")]
 use plugin_builder::MsgFn;
 use plugin_builder::{
@@ -7,7 +8,7 @@ use plugin_builder::{
     ListenMsgFn, NoArgsFn, NoticeFn, RequestFn,
 };
 use serde_json::{json, Value};
-use std::sync::{Arc, RwLock};
+use std::sync::Arc;
 use tokio::sync::oneshot;
 
 /// Kovi内部事件
@@ -34,7 +35,7 @@ impl Bot {
 
     pub(crate) async fn handle_kovi_event(bot: Arc<RwLock<Self>>, event: KoviEvent) {
         let drop_task = {
-            let mut bot_write = bot.write().unwrap();
+            let mut bot_write = bot.write();
             match event {
                 KoviEvent::Drop => {
                     #[cfg(any(feature = "save_plugin_status", feature = "save_bot_admin"))]
@@ -167,7 +168,7 @@ impl Bot {
             }
         };
 
-        let bot_read = bot.read().unwrap();
+        let bot_read = bot.read();
 
         match event {
             OneBotEvent::Msg(e) => {
@@ -187,7 +188,7 @@ impl Bot {
                         let bot_clone = bot.clone();
                         let listen = listen.clone();
                         let enabled = plugin.enabled.subscribe();
-                        tokio::spawn(async move {
+                        RT.get().unwrap().spawn(async move {
                             tokio::select! {
                                 _ = PLUGIN_NAME.scope(name, Self::handle_msg(listen, event_clone, bot_clone)) => {}
                                 _ = monitor_enabled_state(enabled) => {}
@@ -208,7 +209,7 @@ impl Bot {
                         let listen = listen.clone();
                         let enabled = plugin.enabled.subscribe();
 
-                        tokio::spawn(async move {
+                        RT.get().unwrap().spawn(async move {
                             tokio::select! {
                                 _ = PLUGIN_NAME.scope(name, Self::handler_msg_sent(listen,event_clone)) => {}
                                 _ = monitor_enabled_state(enabled) => {}
@@ -228,7 +229,7 @@ impl Bot {
                         let listen = listen.clone();
                         let enabled = plugin.enabled.subscribe();
 
-                        tokio::spawn(async move {
+                        RT.get().unwrap().spawn(async move {
                             tokio::select! {
                                 _ = PLUGIN_NAME.scope(name, Self::handler_notice(listen, event_clone)) => {}
                                 _ = monitor_enabled_state(enabled) => {}
@@ -248,7 +249,7 @@ impl Bot {
                         let listen = listen.clone();
                         let enabled = plugin.enabled.subscribe();
 
-                        tokio::spawn(async move {
+                        RT.get().unwrap().spawn(async move {
                             tokio::select! {
                                 _ = PLUGIN_NAME.scope(name, Self::handler_request(listen, event_clone)) => {}
                                 _ = monitor_enabled_state(enabled) => {}
@@ -278,7 +279,7 @@ impl Bot {
             ListenMsgFn::AdminMsg(handler) => {
                 let user_id = e.user_id;
                 let admin_vec = {
-                    let bot = bot.read().unwrap();
+                    let bot = bot.read();
                     let mut admin_vec = bot
                         .information
                         .deputy_admins

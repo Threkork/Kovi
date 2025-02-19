@@ -1,7 +1,8 @@
 use super::{ApiAndOneshot, ApiReturn, Bot, Host, SendApi};
 use log::error;
+use parking_lot::RwLock;
 use rand::Rng;
-use std::sync::{RwLock, Weak};
+use std::sync::Weak;
 use tokio::sync::{mpsc, oneshot};
 
 pub mod kovi_api;

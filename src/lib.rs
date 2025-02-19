@@ -43,3 +43,5 @@ pub use toml;
 
 #[cfg(feature = "cqstring")]
 pub use regex;
+
+pub(crate) use crate::bot::run::RUNTIME as RT;

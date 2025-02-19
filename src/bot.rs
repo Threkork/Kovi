@@ -21,6 +21,7 @@ use crate::task::TASK_MANAGER;
 
 #[cfg(feature = "plugin-access-control")]
 pub use crate::bot::runtimebot::kovi_api::AccessControlMode;
+use crate::RT;
 
 pub(crate) mod connect;
 pub(crate) mod handler;
@@ -244,7 +245,7 @@ impl BotPlugin {
         for listen in &self.listen.drop {
             let listen_clone = listen.clone();
             let plugin_name_ = plugin_name_.clone();
-            let task = tokio::spawn(async move {
+            let task = RT.get().unwrap().spawn(async move {
                 PLUGIN_NAME
                     .scope(plugin_name_, Bot::handler_drop(listen_clone))
                     .await;
@@ -258,7 +259,7 @@ impl BotPlugin {
             *v = false;
         });
         self.listen.clear();
-        tokio::spawn(async move {
+        RT.get().unwrap().spawn(async move {
             for task in task_vec {
                 let _ = task.await;
             }
@@ -521,7 +522,7 @@ impl Bot {
             let mut plugin_status = HashMap::new();
             for (name, plugin) in self.plugins.iter() {
                 plugin_status.insert(name.clone(), PluginStatus {
-                    enable_on_startup: plugin.enabled.borrow().clone(),
+                    enable_on_startup: *plugin.enabled.borrow(),
                     #[cfg(feature = "plugin-access-control")]
                     access_control: plugin.access_control,
                     #[cfg(feature = "plugin-access-control")]

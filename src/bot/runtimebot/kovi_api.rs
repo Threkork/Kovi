@@ -2,14 +2,12 @@ use super::RuntimeBot;
 use crate::{
     bot::{ApiAndOneshot, PluginInfo},
     error::BotError,
-    Bot, PluginBuilder,
+    Bot, PluginBuilder, RT,
 };
+use parking_lot::RwLock;
 #[cfg(feature = "plugin-access-control")]
 use serde::{Deserialize, Serialize};
-use std::{
-    path::PathBuf,
-    sync::{Arc, RwLock},
-};
+use std::{path::PathBuf, sync::Arc};
 use tokio::sync::mpsc;
 
 #[deprecated(since = "0.11.0", note = "弃用，直接删掉就好了")]
@@ -72,7 +70,7 @@ impl RuntimeBot {
             None => return Err(BotError::RefExpired),
         };
 
-        let mut bot = bot.write().unwrap();
+        let mut bot = bot.write();
 
         let plugin_name = plugin_name.as_ref();
 
@@ -104,7 +102,7 @@ impl RuntimeBot {
             None => return Err(BotError::RefExpired),
         };
 
-        let mut bot = bot.write().unwrap();
+        let mut bot = bot.write();
 
         let plugin_name = plugin_name.as_ref();
 
@@ -139,7 +137,7 @@ impl RuntimeBot {
             None => return Err(BotError::RefExpired),
         };
 
-        let mut bot = bot.write().unwrap();
+        let mut bot = bot.write();
 
         let plugin_name = plugin_name.as_ref();
 
@@ -179,7 +177,7 @@ impl RuntimeBot {
             }
             // 添加多个用户到名单
             (SetAccessControlList::Adds(ids), false) => {
-                bot.information.deputy_admins.extend(ids.into_iter());
+                bot.information.deputy_admins.extend(ids);
             }
             // 从名单中移除一个用户
             (SetAccessControlList::Remove(id), false) => {
@@ -213,13 +211,13 @@ impl RuntimeBot {
             None => return Err(BotError::RefExpired),
         };
 
-        let mut bot = bot.write().unwrap();
+        let mut bot = bot.write();
         match change {
             SetAdmin::Add(id) => {
                 bot.information.deputy_admins.insert(id);
             }
             SetAdmin::Adds(ids) => {
-                bot.information.deputy_admins.extend(ids.into_iter());
+                bot.information.deputy_admins.extend(ids);
             }
             SetAdmin::Remove(id) => {
                 bot.information.deputy_admins.remove(&id);
@@ -247,7 +245,7 @@ impl RuntimeBot {
             None => return Err(BotError::RefExpired),
         };
 
-        let id = bot.read().unwrap().information.main_admin;
+        let id = bot.read().information.main_admin;
         Ok(id)
     }
 
@@ -263,7 +261,7 @@ impl RuntimeBot {
             None => return Err(BotError::RefExpired),
         };
 
-        let ids = bot.read().unwrap().information.deputy_admins.clone();
+        let ids = bot.read().information.deputy_admins.clone();
         Ok(ids.into_iter().collect())
     }
 
@@ -281,7 +279,7 @@ impl RuntimeBot {
 
         let mut admins = Vec::with_capacity(1);
 
-        let bot = bot.read().unwrap();
+        let bot = bot.read();
 
         admins.push(bot.information.main_admin);
 
@@ -316,7 +314,7 @@ impl RuntimeBot {
             None => return Err(BotError::RefExpired),
         };
 
-        let bot = bot.read().unwrap();
+        let bot = bot.read();
 
         let plugins_info: Vec<PluginInfo> = bot
             .plugins
@@ -417,7 +415,7 @@ impl RuntimeBot {
             None => return Err(BotError::RefExpired),
         };
 
-        let bot = bot.read().unwrap();
+        let bot = bot.read();
         let plugin_name = plugin_name.as_ref();
 
         let bot_plugin = match bot.plugins.get(plugin_name) {
@@ -435,7 +433,7 @@ pub(crate) fn disable_plugin<T: AsRef<str>>(
 ) -> Result<tokio::task::JoinHandle<()>, BotError> {
     let join;
     {
-        let mut bot = bot.write().unwrap();
+        let mut bot = bot.write();
 
         let plugin_name = plugin_name.as_ref();
 
@@ -454,7 +452,7 @@ fn enable_plugin<T: AsRef<str>>(
     plugin_name: T,
     api_tx: mpsc::Sender<ApiAndOneshot>,
 ) -> Result<(), BotError> {
-    let bot_read = bot.read().unwrap();
+    let bot_read = bot.read();
     let plugin_name = plugin_name.as_ref();
 
     let (host, port) = {
@@ -478,7 +476,9 @@ fn enable_plugin<T: AsRef<str>>(
     let plugin_builder =
         PluginBuilder::new(plugin_name.to_string(), bot.clone(), host, port, api_tx);
 
-    tokio::spawn(async move { Bot::run_plugin_main(&plugin_, plugin_builder) });
+    RT.get()
+        .unwrap()
+        .spawn(async move { Bot::run_plugin_main(&plugin_, plugin_builder) });
 
     Ok(())
 }

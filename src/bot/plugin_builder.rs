@@ -1,12 +1,15 @@
+use crate::RT;
+
 use super::{runtimebot::RuntimeBot, Bot};
 use super::{ApiAndOneshot, Host, PLUGIN_BUILDER, PLUGIN_NAME};
 use croner::errors::CronError;
 use croner::Cron;
 use event::{MsgEvent, NoticeEvent, RequestEvent};
 use log::error;
+use parking_lot::RwLock;
 use std::future::Future;
 use std::pin::Pin;
-use std::sync::{Arc, RwLock};
+use std::sync::Arc;
 use tokio::sync::mpsc;
 
 pub mod event;
@@ -108,7 +111,7 @@ impl PluginBuilder {
         Fut::Output: Send,
     {
         PLUGIN_BUILDER.with(|p| {
-            let mut bot = p.bot.write().unwrap();
+            let mut bot = p.bot.write();
             let bot_plugin = bot.plugins.get_mut(&p.runtime_bot.plugin_name).unwrap();
 
             let handler = Arc::new(handler);
@@ -138,7 +141,7 @@ impl PluginBuilder {
         Fut::Output: Send,
     {
         PLUGIN_BUILDER.with(|p| {
-            let mut bot = p.bot.write().unwrap();
+            let mut bot = p.bot.write();
             let bot_plugin = bot.plugins.get_mut(&p.runtime_bot.plugin_name).unwrap();
 
             bot_plugin
@@ -168,7 +171,7 @@ impl PluginBuilder {
         Fut::Output: Send,
     {
         PLUGIN_BUILDER.with(|p| {
-            let mut bot = p.bot.write().unwrap();
+            let mut bot = p.bot.write();
             let bot_plugin = bot.plugins.get_mut(&p.runtime_bot.plugin_name).unwrap();
 
             bot_plugin
@@ -195,7 +198,7 @@ impl PluginBuilder {
         Fut::Output: Send,
     {
         PLUGIN_BUILDER.with(|p| {
-            let mut bot = p.bot.write().unwrap();
+            let mut bot = p.bot.write();
             let bot_plugin = bot.plugins.get_mut(&p.runtime_bot.plugin_name).unwrap();
 
             bot_plugin
@@ -251,7 +254,7 @@ impl PluginBuilder {
         Fut::Output: Send,
     {
         PLUGIN_BUILDER.with(|p| {
-            let mut bot = p.bot.write().unwrap();
+            let mut bot = p.bot.write();
             let bot_plugin = bot.plugins.get_mut(&p.runtime_bot.plugin_name).unwrap();
 
             bot_plugin.listen.notice.push(Arc::new({
@@ -278,7 +281,7 @@ impl PluginBuilder {
         Fut::Output: Send,
     {
         PLUGIN_BUILDER.with(|p| {
-            let mut bot = p.bot.write().unwrap();
+            let mut bot = p.bot.write();
             let bot_plugin = bot.plugins.get_mut(&p.runtime_bot.plugin_name).unwrap();
 
             bot_plugin.listen.request.push(Arc::new({
@@ -331,7 +334,7 @@ impl PluginBuilder {
         Fut::Output: Send,
     {
         PLUGIN_BUILDER.with(|p| {
-            let mut bot = p.bot.write().unwrap();
+            let mut bot = p.bot.write();
             let bot_plugin = bot.plugins.get_mut(&p.runtime_bot.plugin_name).unwrap();
 
             bot_plugin.listen.drop.push(Arc::new({
@@ -389,11 +392,11 @@ impl PluginBuilder {
     {
         let name = Arc::new(p.runtime_bot.plugin_name.clone());
         let mut enabled = {
-            let bot = p.bot.read().unwrap();
+            let bot = p.bot.read();
             let plugin = bot.plugins.get(&*name).unwrap();
             plugin.enabled.subscribe()
         };
-        tokio::spawn(PLUGIN_NAME.scope(name.clone(), async move {
+        RT.get().unwrap().spawn(PLUGIN_NAME.scope(name.clone(), async move {
 
             tokio::select! {
                 _ = async {
@@ -467,9 +470,10 @@ mod on_is_ture {
         bot::{plugin_builder::ListenMsgFn, ApiAndOneshot, PLUGIN_BUILDER},
         Bot, PluginBuilder,
     };
+    use parking_lot::RwLock;
     use std::{
         net::{IpAddr, Ipv4Addr},
-        sync::{Arc, RwLock},
+        sync::Arc,
     };
     use tokio::sync::mpsc;
 
@@ -520,7 +524,7 @@ mod on_is_ture {
         );
         PLUGIN_BUILDER.scope(p, (main_foo)()).await;
 
-        let bot_lock = bot.write().unwrap();
+        let bot_lock = bot.write();
         let bot_plugin = bot_lock.plugins.get("some").unwrap();
 
         // 检测里面是不是每个类型的闭包都是一个

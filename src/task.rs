@@ -1,4 +1,4 @@
-use crate::bot::PLUGIN_NAME;
+use crate::{bot::PLUGIN_NAME, RT};
 use ahash::RandomState;
 use parking_lot::Mutex;
 use std::{
@@ -24,7 +24,7 @@ impl TaskManager {
         let handles = Arc::new(Mutex::new(TaskAbortHandles::default()));
 
         let handles_clone = handles.clone();
-        tokio::spawn(async move {
+        RT.get().unwrap().spawn(async move {
             let mut interval = interval(Duration::from_secs(20)); // 每<?>秒清理一次
             loop {
                 interval.tick().await;
@@ -97,7 +97,7 @@ where
     PLUGIN_NAME.with(|name| {
         let join = {
             let name = name.clone();
-            tokio::spawn(PLUGIN_NAME.scope(name, future))
+            RT.get().unwrap().spawn(PLUGIN_NAME.scope(name, future))
         };
 
         let about_join = join.abort_handle();
