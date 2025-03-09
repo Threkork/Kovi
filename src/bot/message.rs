@@ -422,8 +422,6 @@ fn parse_cq_code(item: &Segment) -> String {
             }
         }
         _ => {
-            result.push_str(&format!("[CQ:{}]", item.type_));
-
             let mut params = Vec::new();
             for (key, value) in item.data.as_object().unwrap().iter() {
                 if let Some(value_str) = value.as_str() {
