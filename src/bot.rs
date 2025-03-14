@@ -521,7 +521,7 @@ impl Bot {
             let mut plugin_status = HashMap::new();
             for (name, plugin) in self.plugins.iter() {
                 plugin_status.insert(name.clone(), PluginStatus {
-                    enable_on_startup: plugin.enabled.borrow().clone(),
+                    enable_on_startup: *plugin.enabled.borrow(),
                     #[cfg(feature = "plugin-access-control")]
                     access_control: plugin.access_control,
                     #[cfg(feature = "plugin-access-control")]

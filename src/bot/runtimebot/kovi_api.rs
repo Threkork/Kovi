@@ -179,7 +179,7 @@ impl RuntimeBot {
             }
             // 添加多个用户到名单
             (SetAccessControlList::Adds(ids), false) => {
-                bot.information.deputy_admins.extend(ids.into_iter());
+                bot.information.deputy_admins.extend(ids);
             }
             // 从名单中移除一个用户
             (SetAccessControlList::Remove(id), false) => {
@@ -219,7 +219,7 @@ impl RuntimeBot {
                 bot.information.deputy_admins.insert(id);
             }
             SetAdmin::Adds(ids) => {
-                bot.information.deputy_admins.extend(ids.into_iter());
+                bot.information.deputy_admins.extend(ids);
             }
             SetAdmin::Remove(id) => {
                 bot.information.deputy_admins.remove(&id);

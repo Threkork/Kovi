@@ -224,7 +224,7 @@ impl PluginBuilder {
         Fut::Output: Send,
     {
         PLUGIN_BUILDER.with(|p| {
-            let mut bot = p.runtime_bot.bot.write().unwrap();
+            let mut bot = p.bot.write().unwrap();
             let bot_plugin = bot.plugins.get_mut(&p.runtime_bot.plugin_name).unwrap();
 
             bot_plugin.listen.msg_sent.push(Arc::new({
