@@ -1,13 +1,17 @@
-use crate::bot::*;
+#[cfg(feature = "message_sent")]
+use crate::types::MsgFn;
+use crate::{
+    bot::*,
+    plugin::PLUGIN_NAME,
+    types::{ApiAndOneshot, NoArgsFn, NoticeFn, RequestFn},
+};
 use log::{debug, error, info, warn};
 use parking_lot::RwLock;
-#[cfg(feature = "message_sent")]
-use plugin_builder::MsgFn;
 use plugin_builder::{
+    ListenMsgFn,
     event::{MsgEvent, NoticeEvent, RequestEvent},
-    ListenMsgFn, NoArgsFn, NoticeFn, RequestFn,
 };
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use std::sync::Arc;
 use tokio::sync::oneshot;
 
@@ -378,7 +382,7 @@ impl Bot {
 }
 
 #[cfg(feature = "plugin-access-control")]
-fn is_access(plugin: &BotPlugin, event: &MsgEvent) -> bool {
+fn is_access(plugin: &Plugin, event: &MsgEvent) -> bool {
     if !plugin.access_control {
         return true;
     }

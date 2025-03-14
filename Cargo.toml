@@ -1,7 +1,7 @@
 [package]
 name = "kovi"
-version = "1.0.0"
-edition = "2021"
+version = "0.12.0"
+edition = "2024"
 description = "A OneBot V11 bot plugin framework"
 license = "MPL-2.0"
 authors = ["Threkork <threkork@hotmail.com>"]
@@ -23,7 +23,7 @@ serde_json = "1"
 thiserror = "2"
 log = "0.4"
 anstyle = "1"
-kovi-macros = "0.4"
+kovi-macros = { version = "0.5", git = "https://github.com/Threkork/kovi-macros.git", rev = "10391f4" }
 env_logger = { version = "0.11", default-features = false, features = [
     "auto-color",
     "color",
@@ -41,7 +41,7 @@ parking_lot = "0.12"
 
 
 [features]
-default = ["logger", "save_bot_status", "plugin-access-control"]
+default = ["logger", "save_bot_status", "plugin-access-control", "message_sent"]
 logger = ["env_logger"]
 save_bot_status = ["save_bot_admin", "save_plugin_status"]
 save_bot_admin = []
@@ -51,8 +51,6 @@ plugin-access-control = []
 message_sent = []
 cqstring = []
 
-native-tls = ["tokio-tungstenite/native-tls-vendored"]
-
+native-tls-vendored = ["tokio-tungstenite/native-tls-vendored"]
 rustls-tls-webpki-roots = ["tokio-tungstenite/rustls-tls-webpki-roots"]
-
 rustls-tls-native-roots = ["tokio-tungstenite/rustls-tls-native-roots"]

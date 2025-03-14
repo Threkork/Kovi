@@ -1,28 +1,18 @@
+use super::Host;
+use super::{Bot, runtimebot::RuntimeBot};
 use crate::RT;
-
-use super::{runtimebot::RuntimeBot, Bot};
-use super::{ApiAndOneshot, Host, PLUGIN_BUILDER, PLUGIN_NAME};
-use croner::errors::CronError;
+use crate::plugin::{PLUGIN_BUILDER, PLUGIN_NAME};
+use crate::types::{ApiAndOneshot, MsgFn, NoArgsFn, NoticeFn, RequestFn};
 use croner::Cron;
+use croner::errors::CronError;
 use event::{MsgEvent, NoticeEvent, RequestEvent};
 use log::error;
 use parking_lot::RwLock;
 use std::future::Future;
-use std::pin::Pin;
 use std::sync::Arc;
 use tokio::sync::mpsc;
 
 pub mod event;
-
-pub type PinFut = Pin<Box<dyn Future<Output = ()> + Send>>;
-
-pub type MsgFn = Arc<dyn Fn(Arc<MsgEvent>) -> PinFut + Send + Sync>;
-
-pub type NoticeFn = Arc<dyn Fn(Arc<NoticeEvent>) -> PinFut + Send + Sync>;
-
-pub type RequestFn = Arc<dyn Fn(Arc<RequestEvent>) -> PinFut + Send + Sync>;
-
-pub type NoArgsFn = Arc<dyn Fn() -> PinFut + Send + Sync>;
 
 #[derive(Clone, Default)]
 pub(crate) struct Listen {
@@ -227,7 +217,7 @@ impl PluginBuilder {
         Fut::Output: Send,
     {
         PLUGIN_BUILDER.with(|p| {
-            let mut bot = p.runtime_bot.bot.write().unwrap();
+            let mut bot = p.bot.write();
             let bot_plugin = bot.plugins.get_mut(&p.runtime_bot.plugin_name).unwrap();
 
             bot_plugin.listen.msg_sent.push(Arc::new({
@@ -467,8 +457,10 @@ macro_rules! async_move {
 #[cfg(test)]
 mod on_is_ture {
     use crate::{
-        bot::{plugin_builder::ListenMsgFn, ApiAndOneshot, PLUGIN_BUILDER},
         Bot, PluginBuilder,
+        bot::plugin_builder::ListenMsgFn,
+        plugin::{PLUGIN_BUILDER, Plugin},
+        types::ApiAndOneshot,
     };
     use parking_lot::RwLock;
     use std::{
@@ -510,8 +502,10 @@ mod on_is_ture {
             })
         }
 
+        let plugin = Plugin::new("some", "0.0.1", Arc::new(pin_something));
+
         let mut bot = Bot::build(conf);
-        bot.mount_main("some", "0.0.1", Arc::new(pin_something));
+        bot.mount_plugin(plugin);
         let main_foo = bot.plugins.get("some").unwrap().main.clone();
         let bot = Arc::new(RwLock::new(bot));
 

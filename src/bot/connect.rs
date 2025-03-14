@@ -1,5 +1,7 @@
+use crate::types::ApiAndOneshot;
+
 use super::Server;
-use super::{handler::InternalEvent, ApiAndOneshot, ApiReturn, Bot, Host};
+use super::{ApiReturn, Bot, Host, handler::InternalEvent};
 use ahash::{HashMapExt as _, RandomState};
 use futures_util::stream::{SplitSink, SplitStream};
 use futures_util::{SinkExt, StreamExt};
@@ -13,8 +15,8 @@ use tokio::net::TcpStream;
 use tokio::sync::mpsc::Sender;
 use tokio::sync::{mpsc, oneshot};
 use tokio_tungstenite::tungstenite::Message;
-use tokio_tungstenite::{connect_async, tungstenite::client::IntoClientRequest};
 use tokio_tungstenite::{MaybeTlsStream, WebSocketStream};
+use tokio_tungstenite::{connect_async, tungstenite::client::IntoClientRequest};
 
 type ApiTxMap = Arc<
     Mutex<HashMap<String, tokio::sync::oneshot::Sender<Result<ApiReturn, ApiReturn>>, RandomState>>,

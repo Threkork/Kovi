@@ -1,20 +1,21 @@
 use super::{Anonymous, EventBuildError, Sender};
 use crate::bot::runtimebot::send_api_request_with_forget;
+use crate::types::ApiAndOneshot;
 use crate::{
-    bot::{plugin_builder::event::Sex, ApiAndOneshot, SendApi},
     Message,
+    bot::{SendApi, plugin_builder::event::Sex},
 };
 use log::{debug, info};
 use serde::Serialize;
 use serde_json::value::Index;
-use serde_json::{self, json, Value};
+use serde_json::{self, Value, json};
 use tokio::sync::mpsc;
 
 #[cfg(not(feature = "cqstring"))]
 use log::error;
 
 #[cfg(feature = "cqstring")]
-use crate::bot::message::{cq_to_arr, CQMessage};
+use crate::bot::message::{CQMessage, cq_to_arr};
 
 #[deprecated(since = "0.11.0", note = "请使用 `MsgEvent` 代替")]
 pub type AllMsgEvent = MsgEvent;
@@ -165,7 +166,7 @@ impl MsgEvent {
         };
 
         let anonymous: Option<Anonymous> =
-            if temp_object.get("anonymous").map_or(true, |v| v.is_null()) {
+            if temp_object.get("anonymous").is_none_or(|v| v.is_null()) {
                 None
             } else {
                 let anonymous = temp_object

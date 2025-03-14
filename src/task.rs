@@ -1,4 +1,4 @@
-use crate::{bot::PLUGIN_NAME, RT};
+use crate::{RT, plugin::PLUGIN_NAME};
 use ahash::RandomState;
 use parking_lot::Mutex;
 use std::{

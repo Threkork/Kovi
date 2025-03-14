@@ -1,14 +1,13 @@
 use super::RuntimeBot;
-use crate::{
-    bot::{ApiAndOneshot, PluginInfo},
-    error::BotError,
-    Bot, PluginBuilder, RT,
-};
+use crate::{Bot, PluginBuilder, RT, error::BotError, plugin::PluginInfo, types::ApiAndOneshot};
 use parking_lot::RwLock;
-#[cfg(feature = "plugin-access-control")]
-use serde::{Deserialize, Serialize};
 use std::{path::PathBuf, sync::Arc};
 use tokio::sync::mpsc;
+
+#[cfg(feature = "plugin-access-control")]
+use ahash::HashSet;
+#[cfg(feature = "plugin-access-control")]
+use serde::{Deserialize, Serialize};
 
 #[deprecated(since = "0.11.0", note = "弃用，直接删掉就好了")]
 pub trait KoviApi {}
@@ -40,6 +39,13 @@ pub enum SetAccessControlList {
     Removes(Vec<i64>),
     /// 替换名单成此名单
     Changes(Vec<i64>),
+}
+
+#[cfg(feature = "plugin-access-control")]
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+pub struct AccessList {
+    pub friends: HashSet<i64>,
+    pub groups: HashSet<i64>,
 }
 
 #[cfg(feature = "plugin-access-control")]
@@ -478,7 +484,7 @@ fn enable_plugin<T: AsRef<str>>(
 
     RT.get()
         .unwrap()
-        .spawn(async move { Bot::run_plugin_main(&plugin_, plugin_builder) });
+        .spawn(async move { plugin_.run(plugin_builder) });
 
     Ok(())
 }

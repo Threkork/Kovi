@@ -1,4 +1,6 @@
-use super::{ApiAndOneshot, ApiReturn, Bot, Host, SendApi};
+use crate::types::{ApiAndOneshot, ApiOneshotReceiver, ApiOneshotSender};
+
+use super::{ApiReturn, Bot, Host, SendApi};
 use log::error;
 use parking_lot::RwLock;
 use rand::Rng;
@@ -38,9 +40,7 @@ pub fn rand_echo() -> String {
     s
 }
 
-type ApiOneshotSender = oneshot::Sender<Result<ApiReturn, ApiReturn>>;
-type ApiOneshotReceiver = oneshot::Receiver<Result<ApiReturn, ApiReturn>>;
-
+/// 提供给拓展API插件开发者的异步 API 请求发送函数，返回一个 Future ，用于等待在 Kovi 中已经缓存好的API响应。
 pub fn send_api_request_with_response(
     api_tx: &mpsc::Sender<ApiAndOneshot>,
     send_api: SendApi,
@@ -49,6 +49,7 @@ pub fn send_api_request_with_response(
     send_api_await_response(api_rx)
 }
 
+/// 提供给拓展 API 插件开发者的 API 请求发送函数，返回一个 API 通道，可以用于等待 API 响应。
 pub fn send_api_request(
     api_tx: &mpsc::Sender<ApiAndOneshot>,
     send_api: SendApi,
@@ -75,6 +76,7 @@ pub fn send_api_request(
     api_rx
 }
 
+/// 提供给拓展 API 插件开发者的 API 请求发送函数，忽略返回值。
 pub fn send_api_request_with_forget(api_tx: &mpsc::Sender<ApiAndOneshot>, send_api: SendApi) {
     if let Err(e) = api_tx.try_send((send_api, None)) {
         match e {
@@ -94,6 +96,7 @@ pub fn send_api_request_with_forget(api_tx: &mpsc::Sender<ApiAndOneshot>, send_a
     };
 }
 
+/// 一个异步 Future ，传入一个 API 通道，可以用于等待在 Kovi 中缓存好的 API 响应。
 pub async fn send_api_await_response(api_rx: ApiOneshotReceiver) -> Result<ApiReturn, ApiReturn> {
     match api_rx.await {
         Ok(v) => v,

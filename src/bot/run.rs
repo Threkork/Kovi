@@ -1,11 +1,8 @@
 use super::{
+    Bot,
     handler::{InternalEvent, KoviEvent},
-    ApiAndOneshot, Bot, BotPlugin,
 };
-use crate::{
-    bot::{PLUGIN_BUILDER, PLUGIN_NAME},
-    PluginBuilder,
-};
+use crate::{PluginBuilder, types::ApiAndOneshot};
 use log::error;
 use parking_lot::RwLock;
 use std::{
@@ -163,8 +160,8 @@ impl Bot {
             )
         };
 
-        for (name, plugins) in main_job_map.iter() {
-            if !plugins.enable_on_startup {
+        for (name, plugin) in main_job_map.iter() {
+            if !plugin.enable_on_startup {
                 continue;
             }
             let plugin_builder = PluginBuilder::new(
@@ -174,33 +171,8 @@ impl Bot {
                 port,
                 api_tx.clone(),
             );
-            Self::run_plugin_main(plugins, plugin_builder);
+            plugin.run(plugin_builder);
         }
-    }
-
-    // 运行单个插件的main()
-    pub(crate) fn run_plugin_main(plugin: &BotPlugin, plugin_builder: PluginBuilder) {
-        let plugin_name = plugin_builder.runtime_bot.plugin_name.clone();
-
-        let mut enabled = plugin.enabled.subscribe();
-        let main = plugin.main.clone();
-
-        RT.get().unwrap().spawn(async move {
-            tokio::select! {
-                _ = PLUGIN_NAME.scope(
-                        Arc::new(plugin_name),
-                        PLUGIN_BUILDER.scope(plugin_builder, main()),
-                ) =>{}
-                _ = async {
-                        loop {
-                            enabled.changed().await.unwrap();
-                            if !*enabled.borrow_and_update() {
-                                break;
-                            }
-                        }
-                } => {}
-            }
-        });
     }
 }
 
@@ -240,7 +212,7 @@ impl ExitCheck {
 
     async fn await_exit_signal() {
         #[cfg(unix)]
-        use tokio::signal::unix::{signal, SignalKind};
+        use tokio::signal::unix::{SignalKind, signal};
         #[cfg(windows)]
         use tokio::signal::windows;
 
