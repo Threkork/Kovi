@@ -1,4 +1,5 @@
 use super::{Anonymous, Sender};
+use crate::bot::message::cq_to_arr_inner;
 use crate::bot::runtimebot::send_api_request_with_forget;
 use crate::{
     bot::{plugin_builder::event::Sex, ApiAndOneshot, SendApi},
@@ -8,9 +9,6 @@ use log::{debug, info};
 use serde::Serialize;
 use serde_json::{self, json, Value};
 use tokio::sync::mpsc;
-
-#[cfg(not(feature = "cqstring"))]
-use log::error;
 
 #[cfg(feature = "cqstring")]
 use crate::bot::message::{cq_to_arr, CQMessage};
@@ -111,17 +109,9 @@ impl MsgEvent {
             let v = temp_object["message"].as_array().unwrap().to_vec();
             Message::from_vec_segment_value(v).unwrap()
         } else {
-            #[cfg(feature = "cqstring")]
-            {
-                let str = temp_object["message"].as_str().unwrap().to_string();
-                cq_to_arr(CQMessage::from(str))
-            }
-            #[cfg(not(feature = "cqstring"))]
-            {
-                // 不开启cqstring特性，不能用。
-                error!("不开启cqstring feature，不能使用cq码");
-                panic!()
-            }
+            let str_v = temp_object["message"].as_str().ok_or(format!("message is not string:{:?}",temp_object["message"]))?;
+            let arr_v = cq_to_arr_inner(str_v);
+            Message::from_vec_segment_value(arr_v).unwrap()
         };
         let anonymous: Option<Anonymous> =
             if temp_object.get("anonymous").is_none() || temp_object["anonymous"].is_null() {

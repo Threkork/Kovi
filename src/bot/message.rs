@@ -1,7 +1,5 @@
-use std::ops::Add;
+use std::{collections::HashMap, ops::Add};
 
-#[cfg(feature = "cqstring")]
-use regex::Regex;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
@@ -348,65 +346,172 @@ impl From<Message> for CQMessage {
     }
 }
 
+pub(crate) fn cq_to_arr_inner(message: &str) -> Vec<serde_json::Value> {
+    let cqstr = message.chars().collect::<Vec<char>>();
+    let mut text = "".to_owned();
+    let mut type_ = "".to_owned();
+    let mut val = "".to_owned();
+    let mut key = "".to_owned();
+    let mut jsonarr: Vec<serde_json::Value> = vec![];
+    let mut cqcode: HashMap<String, serde_json::Value> = HashMap::new();
+    let mut stat = 0; //0:text 1:cqcode_type 2:cqcode_key 3:cqcode_val
+    let mut i = 0usize;
+    while i < cqstr.len() {
+        let cur_ch = cqstr[i];
+        if stat == 0 {
+            if cur_ch == '[' {
+                if i + 4 <= cqstr.len() {
+                    let t = &cqstr[i..i + 4];
+                    if t.starts_with(&['[', 'C', 'Q', ':']) {
+                        if text.len() != 0 {
+                            let mut node: HashMap<String, serde_json::Value> = HashMap::new();
+                            node.insert("type".to_string(), serde_json::json!("text"));
+                            node.insert("data".to_string(), serde_json::json!({"text": text}));
+                            jsonarr.push(serde_json::json!(node));
+                            text.clear();
+                        }
+                        stat = 1;
+                        i += 3;
+                    } else {
+                        text.push(cqstr[i]);
+                    }
+                } else {
+                    text.push(cqstr[i]);
+                }
+            } else if cur_ch == '&' {
+                if i + 5 <= cqstr.len() {
+                    let t = &cqstr[i..i + 5];
+                    if t.starts_with(&['&', '#', '9', '1', ';']) {
+                        text.push('[');
+                        i += 4;
+                    } else if t.starts_with(&['&', '#', '9', '3', ';']) {
+                        text.push(']');
+                        i += 4;
+                    } else if t.starts_with(&['&', 'a', 'm', 'p', ';']) {
+                        text.push('&');
+                        i += 4;
+                    } else {
+                        text.push(cqstr[i]);
+                    }
+                } else {
+                    text.push(cqstr[i]);
+                }
+            } else {
+                text.push(cqstr[i]);
+            }
+        } else if stat == 1 {
+            if cur_ch == ',' {
+                stat = 2;
+            } else if cur_ch == '&' {
+                if i + 5 <= cqstr.len() {
+                    let t = &cqstr[i..i + 5];
+                    if t.starts_with(&['&', '#', '9', '1', ';']) {
+                        type_.push('[');
+                        i += 4;
+                    } else if t.starts_with(&['&', '#', '9', '3', ';']) {
+                        type_.push(']');
+                        i += 4;
+                    } else if t.starts_with(&['&', 'a', 'm', 'p', ';']) {
+                        type_.push('&');
+                        i += 4;
+                    } else if t.starts_with(&['&', '#', '4', '4', ';']) {
+                        type_.push(',');
+                        i += 4;
+                    } else {
+                        type_.push(cqstr[i]);
+                    }
+                } else {
+                    type_.push(cqstr[i]);
+                }
+            } else {
+                type_.push(cqstr[i]);
+            }
+        } else if stat == 2 {
+            if cur_ch == '=' {
+                stat = 3;
+            } else if cur_ch == '&' {
+                if i + 5 <= cqstr.len() {
+                    let t = &cqstr[i..i + 5];
+                    if t.starts_with(&['&', '#', '9', '1', ';']) {
+                        key.push('[');
+                        i += 4;
+                    } else if t.starts_with(&['&', '#', '9', '3', ';']) {
+                        key.push(']');
+                        i += 4;
+                    } else if t.starts_with(&['&', 'a', 'm', 'p', ';']) {
+                        key.push('&');
+                        i += 4;
+                    } else if t.starts_with(&['&', '#', '4', '4', ';']) {
+                        key.push(',');
+                        i += 4;
+                    } else {
+                        key.push(cqstr[i]);
+                    }
+                } else {
+                    key.push(cqstr[i]);
+                }
+            } else {
+                key.push(cqstr[i]);
+            }
+        } else if stat == 3 {
+            if cur_ch == ']' {
+                let mut node: HashMap<String, serde_json::Value> = HashMap::new();
+                cqcode.insert(key.clone(), serde_json::json!(val));
+                node.insert("type".to_string(), serde_json::json!(type_));
+                node.insert("data".to_string(), serde_json::json!(cqcode));
+                jsonarr.push(serde_json::json!(node));
+                key.clear();
+                val.clear();
+                text.clear();
+                type_.clear();
+                cqcode.clear();
+                stat = 0;
+            } else if cur_ch == ',' {
+                cqcode.insert(key.clone(), serde_json::json!(val));
+                key.clear();
+                val.clear();
+                stat = 2;
+            } else if cur_ch == '&' {
+                if i + 5 <= cqstr.len() {
+                    let t = &cqstr[i..i + 5];
+                    if t.starts_with(&['&', '#', '9', '1', ';']) {
+                        val.push('[');
+                        i += 4;
+                    } else if t.starts_with(&['&', '#', '9', '3', ';']) {
+                        val.push(']');
+                        i += 4;
+                    } else if t.starts_with(&['&', 'a', 'm', 'p', ';']) {
+                        val.push('&');
+                        i += 4;
+                    } else if t.starts_with(&['&', '#', '4', '4', ';']) {
+                        val.push(',');
+                        i += 4;
+                    } else {
+                        val.push(cqstr[i]);
+                    }
+                } else {
+                    val.push(cqstr[i]);
+                }
+            } else {
+                val.push(cqstr[i]);
+            }
+        }
+        i += 1;
+    }
+    if text.len() != 0 {
+        let mut node: HashMap<String, serde_json::Value> = HashMap::new();
+        node.insert("type".to_string(), serde_json::json!("text"));
+        node.insert("data".to_string(), serde_json::json!({"text": text}));
+        jsonarr.push(serde_json::json!(node));
+    }
+    jsonarr
+}
+
+
 #[cfg(feature = "cqstring")]
 pub fn cq_to_arr(message: CQMessage) -> Message {
-    let cq_regex = Regex::new(r"\[CQ:([a-zA-Z]+)(,[^\]]+)?\]").unwrap();
-    let mut result = Vec::new();
-
-    let mut last_end = 0;
-
-    for cap in cq_regex.captures_iter(&message.0) {
-        let start = cap.get(0).unwrap().start();
-
-        // 如果前面有纯文本，添加纯文本部分
-        if start > last_end {
-            let text_segment = &message.0[last_end..start];
-            if !text_segment.is_empty() {
-                result.push(json!({
-                    "type": "text",
-                    "data": {
-                        "text": text_segment
-                    }
-                }));
-            }
-        }
-
-        // 解析 CQ 码
-        let function_name = &cap[1];
-        let mut data = serde_json::Map::new();
-
-        if let Some(params) = cap.get(2) {
-            let params_str = params.as_str().trim_start_matches(',');
-            for param in params_str.split(',') {
-                let mut parts = param.splitn(2, '=');
-                let key = parts.next().unwrap().to_string();
-                let value = parts.next().unwrap_or("").to_string();
-                data.insert(key, Value::String(value));
-            }
-        }
-
-        result.push(json!({
-            "type": function_name,
-            "data": data
-        }));
-
-        last_end = cap.get(0).unwrap().end();
-    }
-
-    // 添加最后一段纯文本
-    if last_end < message.0.len() {
-        let text_segment = &message.0[last_end..];
-        if !text_segment.is_empty() {
-            result.push(json!({
-                "type": "text",
-                "data": {
-                    "text": text_segment
-                }
-            }));
-        }
-    }
-
-    Message::from_vec_segment_value(result).unwrap()
+    let json_arr = cq_to_arr_inner(&message.0);
+    Message::from_vec_segment_value(json_arr).unwrap()
 }
 
 #[cfg(feature = "cqstring")]
