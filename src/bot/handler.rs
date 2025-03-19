@@ -1,13 +1,18 @@
-use crate::bot::*;
-use log::{debug, error, info, warn};
 #[cfg(feature = "message_sent")]
-use plugin_builder::AllMsgFn;
-use plugin_builder::{
-    event::{MsgEvent, NoticeEvent, RequestEvent},
-    AllNoticeFn, AllRequestFn, ListenMsgFn, NoArgsFn,
+use crate::types::MsgFn;
+use crate::{
+    bot::*,
+    plugin::PLUGIN_NAME,
+    types::{ApiAndOneshot, NoArgsFn, NoticeFn, RequestFn},
 };
-use serde_json::{json, Value};
-use std::sync::{Arc, RwLock};
+use log::{debug, error, info, warn};
+use parking_lot::RwLock;
+use plugin_builder::{
+    ListenMsgFn,
+    event::{MsgEvent, NoticeEvent, RequestEvent},
+};
+use serde_json::{Value, json};
+use std::sync::Arc;
 use tokio::sync::oneshot;
 
 /// Kovi内部事件
@@ -34,7 +39,7 @@ impl Bot {
 
     pub(crate) async fn handle_kovi_event(bot: Arc<RwLock<Self>>, event: KoviEvent) {
         let drop_task = {
-            let mut bot_write = bot.write().unwrap();
+            let mut bot_write = bot.write();
             match event {
                 KoviEvent::Drop => {
                     #[cfg(any(feature = "save_plugin_status", feature = "save_bot_admin"))]
@@ -55,21 +60,26 @@ impl Bot {
     }
 
     async fn handler_msg(bot: Arc<RwLock<Self>>, msg: String, api_tx: mpsc::Sender<ApiAndOneshot>) {
-        let msg_json: Value = serde_json::from_str(&msg).unwrap();
+        let msg_json: Value = match serde_json::from_str(&msg) {
+            Ok(json) => json,
+            Err(e) => {
+                error!("Failed to parse JSON from message: {}", e);
+                return;
+            }
+        };
 
         debug!("{msg_json}");
 
         if let Some(meta_event_type) = msg_json.get("meta_event_type") {
-            match meta_event_type.as_str().unwrap() {
-                // 生命周期一开始请求bot的信息
-                "lifecycle" => {
+            match meta_event_type.as_str() {
+                Some("lifecycle") => {
                     Self::handler_lifecycle(api_tx).await;
                     return;
                 }
-                "heartbeat" => {
+                Some("heartbeat") => {
                     return;
                 }
-                _ => {
+                Some(_) | None => {
                     return;
                 }
             }
@@ -83,7 +93,21 @@ impl Bot {
             AllRequest(RequestEvent),
         }
 
-        let event = match msg_json.get("post_type").unwrap().as_str().unwrap() {
+        let post_type = match msg_json.get("post_type") {
+            Some(value) => match value.as_str() {
+                Some(s) => s,
+                None => {
+                    error!("Invalid 'post_type' value in message JSON");
+                    return;
+                }
+            },
+            None => {
+                error!("Missing 'post_type' in message JSON");
+                return;
+            }
+        };
+
+        let event = match post_type {
             "message" => {
                 let e = match MsgEvent::new(api_tx, &msg) {
                     Ok(event) => event,
@@ -104,16 +128,22 @@ impl Bot {
                 info!("[{message_type}{group_id}{nickname} {id}]: {text}");
                 OneBotEvent::Msg(e)
             }
-            #[cfg(feature = "message_sent")]
+
             "message_sent" => {
-                let e = match MsgEvent::new(api_tx, &msg) {
-                    Ok(event) => event,
-                    Err(e) => {
-                        error!("{e}");
-                        return;
-                    }
-                };
-                OneBotEvent::MsgSent(e)
+                #[cfg(not(feature = "message_sent"))]
+                return;
+
+                #[cfg(feature = "message_sent")]
+                {
+                    let e = match MsgEvent::new(api_tx, &msg) {
+                        Ok(event) => event,
+                        Err(e) => {
+                            error!("{e}");
+                            return;
+                        }
+                    };
+                    OneBotEvent::MsgSent(e)
+                }
             }
             "notice" => {
                 let e = match NoticeEvent::new(&msg) {
@@ -142,7 +172,7 @@ impl Bot {
             }
         };
 
-        let bot_read = bot.read().unwrap();
+        let bot_read = bot.read();
 
         match event {
             OneBotEvent::Msg(e) => {
@@ -161,18 +191,11 @@ impl Bot {
                         let event_clone = Arc::clone(&e);
                         let bot_clone = bot.clone();
                         let listen = listen.clone();
-                        let mut enabled = plugin.enabled.subscribe();
-                        tokio::spawn(async move {
+                        let enabled = plugin.enabled.subscribe();
+                        RT.get().unwrap().spawn(async move {
                             tokio::select! {
                                 _ = PLUGIN_NAME.scope(name, Self::handle_msg(listen, event_clone, bot_clone)) => {}
-                                _ = async {
-                                        loop {
-                                            enabled.changed().await.unwrap();
-                                            if !*enabled.borrow_and_update() {
-                                                break;
-                                            }
-                                        }
-                                } => {}
+                                _ = monitor_enabled_state(enabled) => {}
                             }
                         });
                     }
@@ -188,19 +211,12 @@ impl Bot {
                         let name = name_.clone();
                         let event_clone = Arc::clone(&e);
                         let listen = listen.clone();
-                        let mut enabled = plugin.enabled.subscribe();
+                        let enabled = plugin.enabled.subscribe();
 
-                        tokio::spawn(async move {
+                        RT.get().unwrap().spawn(async move {
                             tokio::select! {
                                 _ = PLUGIN_NAME.scope(name, Self::handler_msg_sent(listen,event_clone)) => {}
-                                _ = async {
-                                        loop {
-                                            enabled.changed().await.unwrap();
-                                            if !*enabled.borrow_and_update() {
-                                                break;
-                                            }
-                                        }
-                                } => {}
+                                _ = monitor_enabled_state(enabled) => {}
                             }
                         });
                     }
@@ -215,19 +231,12 @@ impl Bot {
                         let name = name_.clone();
                         let event_clone = Arc::clone(&e);
                         let listen = listen.clone();
-                        let mut enabled = plugin.enabled.subscribe();
+                        let enabled = plugin.enabled.subscribe();
 
-                        tokio::spawn(async move {
+                        RT.get().unwrap().spawn(async move {
                             tokio::select! {
                                 _ = PLUGIN_NAME.scope(name, Self::handler_notice(listen, event_clone)) => {}
-                                _ = async {
-                                        loop {
-                                            enabled.changed().await.unwrap();
-                                            if !*enabled.borrow_and_update() {
-                                                break;
-                                            }
-                                        }
-                                } => {}
+                                _ = monitor_enabled_state(enabled) => {}
                             }
                         });
                     }
@@ -242,20 +251,24 @@ impl Bot {
                         let name = name_.clone();
                         let event_clone = Arc::clone(&e);
                         let listen = listen.clone();
-                        let mut enabled = plugin.enabled.subscribe();
+                        let enabled = plugin.enabled.subscribe();
 
-                        tokio::spawn(async move {
+                        RT.get().unwrap().spawn(async move {
                             tokio::select! {
                                 _ = PLUGIN_NAME.scope(name, Self::handler_request(listen, event_clone)) => {}
-                                _ = async {
-                                        loop {
-                                            enabled.changed().await.unwrap();
-                                            if !*enabled.borrow_and_update() {
-                                                break;
-                                        }}} => {}
+                                _ = monitor_enabled_state(enabled) => {}
                             }
                         });
                     }
+                }
+            }
+        }
+
+        async fn monitor_enabled_state(mut enabled: watch::Receiver<bool>) {
+            loop {
+                enabled.changed().await.unwrap();
+                if !*enabled.borrow_and_update() {
+                    break;
                 }
             }
         }
@@ -270,7 +283,7 @@ impl Bot {
             ListenMsgFn::AdminMsg(handler) => {
                 let user_id = e.user_id;
                 let admin_vec = {
-                    let bot = bot.read().unwrap();
+                    let bot = bot.read();
                     let mut admin_vec = bot
                         .information
                         .deputy_admins
@@ -298,15 +311,15 @@ impl Bot {
     }
 
     #[cfg(feature = "message_sent")]
-    async fn handler_msg_sent(listen: AllMsgFn, e: Arc<MsgEvent>) {
+    async fn handler_msg_sent(listen: MsgFn, e: Arc<MsgEvent>) {
         listen(e).await;
     }
 
-    async fn handler_notice(listen: AllNoticeFn, e: Arc<NoticeEvent>) {
+    async fn handler_notice(listen: NoticeFn, e: Arc<NoticeEvent>) {
         listen(e).await;
     }
 
-    async fn handler_request(listen: AllRequestFn, e: Arc<RequestEvent>) {
+    async fn handler_request(listen: RequestFn, e: Arc<RequestEvent>) {
         listen(e).await;
     }
 
@@ -341,13 +354,26 @@ impl Bot {
             }
         };
 
-        let self_id = self_info_value
-            .data
-            .get("user_id")
-            .unwrap()
-            .as_i64()
-            .unwrap();
-        let self_name = self_info_value.data.get("nickname").unwrap().to_string();
+        let self_id = match self_info_value.data.get("user_id") {
+            Some(user_id) => match user_id.as_i64() {
+                Some(id) => id,
+                None => {
+                    error!("Expected 'user_id' to be an integer");
+                    return;
+                }
+            },
+            None => {
+                error!("Missing 'user_id' in self_info_value data");
+                return;
+            }
+        };
+        let self_name = match self_info_value.data.get("nickname") {
+            Some(nickname) => nickname.to_string(),
+            None => {
+                error!("Missing 'nickname' in self_info_value data");
+                return;
+            }
+        };
         info!(
             "Bot connection successful，Nickname:{},ID:{}",
             self_name, self_id
@@ -356,7 +382,7 @@ impl Bot {
 }
 
 #[cfg(feature = "plugin-access-control")]
-fn is_access(plugin: &BotPlugin, event: &MsgEvent) -> bool {
+fn is_access(plugin: &Plugin, event: &MsgEvent) -> bool {
     if !plugin.access_control {
         return true;
     }

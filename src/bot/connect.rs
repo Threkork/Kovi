@@ -1,21 +1,22 @@
+use crate::types::ApiAndOneshot;
+
 use super::Server;
-use super::{handler::InternalEvent, ApiAndOneshot, ApiReturn, Bot, Host};
+use super::{ApiReturn, Bot, Host, handler::InternalEvent};
 use ahash::{HashMapExt as _, RandomState};
 use futures_util::stream::{SplitSink, SplitStream};
 use futures_util::{SinkExt, StreamExt};
 use http::HeaderValue;
 use log::{debug, error, warn};
-use parking_lot::Mutex;
+use parking_lot::{Mutex, RwLock};
 use std::error::Error;
 use std::fmt::Display;
-use std::sync::RwLock;
 use std::{collections::HashMap, net::IpAddr, sync::Arc};
 use tokio::net::TcpStream;
 use tokio::sync::mpsc::Sender;
 use tokio::sync::{mpsc, oneshot};
 use tokio_tungstenite::tungstenite::Message;
-use tokio_tungstenite::{connect_async, tungstenite::client::IntoClientRequest};
 use tokio_tungstenite::{MaybeTlsStream, WebSocketStream};
+use tokio_tungstenite::{connect_async, tungstenite::client::IntoClientRequest};
 
 type ApiTxMap = Arc<
     Mutex<HashMap<String, tokio::sync::oneshot::Sender<Result<ApiReturn, ApiReturn>>, RandomState>>,
@@ -41,7 +42,7 @@ impl Bot {
         ) = oneshot::channel();
 
         {
-            let mut bot_write = bot.write().unwrap();
+            let mut bot_write = bot.write();
             bot_write.spawn(Self::ws_event_connect(
                 server.clone(),
                 event_tx.clone(),
@@ -109,28 +110,8 @@ impl Bot {
 
         let (_, read) = ws_stream.split();
 
-        let mut bot_write = bot.write().unwrap();
-        bot_write.spawn(read.for_each(move |msg| {
-            let event_tx = event_tx.clone();
-            async {
-                match msg {
-                    Ok(msg) => {
-                        if !msg.is_text() {
-                            return;
-                        }
-
-                        let text = msg.to_text().unwrap();
-                        if let Err(e) = event_tx
-                            .send(InternalEvent::OneBotEvent(text.to_string()))
-                            .await
-                        {
-                            debug!("通道关闭：{e}")
-                        }
-                    }
-                    Err(e) => connection_failed_eprintln(e, event_tx).await,
-                }
-            }
-        }));
+        let mut bot_write = bot.write();
+        bot_write.spawn(ws_event_connect_read(read, event_tx));
     }
 
     pub(crate) async fn ws_send_api(
@@ -179,7 +160,7 @@ impl Bot {
         let (write, read) = ws_stream.split();
         let api_tx_map: ApiTxMap = Arc::new(Mutex::new(HashMap::<_, _, RandomState>::new()));
 
-        let mut bot_write = bot.write().unwrap();
+        let mut bot_write = bot.write();
 
         //读
         bot_write.spawn(ws_send_api_read(
@@ -195,6 +176,39 @@ impl Bot {
             event_tx,
             api_tx_map.clone(),
         ));
+    }
+}
+
+async fn ws_event_connect_read(
+    read: SplitStream<WebSocketStream<MaybeTlsStream<TcpStream>>>,
+    event_tx: Sender<InternalEvent>,
+) {
+    read.for_each(|msg| {
+        let event_tx = event_tx.clone();
+        async {
+            match msg {
+                Ok(msg) => handle_msg(msg, event_tx).await,
+                Err(e) => connection_failed_eprintln(e, event_tx).await,
+            }
+        }
+    })
+    .await;
+
+    async fn handle_msg(
+        msg: tokio_tungstenite::tungstenite::Message,
+        event_tx: Sender<InternalEvent>,
+    ) {
+        if !msg.is_text() {
+            return;
+        }
+
+        let text = msg.to_text().unwrap();
+        if let Err(e) = event_tx
+            .send(InternalEvent::OneBotEvent(text.to_string()))
+            .await
+        {
+            debug!("通道关闭：{e}")
+        }
     }
 }
 

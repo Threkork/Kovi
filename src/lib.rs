@@ -10,18 +10,19 @@
 pub mod bot;
 pub mod error;
 pub mod logger;
+pub mod plugin;
 pub mod task;
 /// 提供一些方便的插件开发函数
 pub mod utils;
 
+pub use bot::ApiReturn;
+pub use bot::Bot;
 pub use bot::message::Message;
+pub use bot::plugin_builder::PluginBuilder;
 pub use bot::plugin_builder::event::MsgEvent;
 pub use bot::plugin_builder::event::NoticeEvent;
 pub use bot::plugin_builder::event::RequestEvent;
-pub use bot::plugin_builder::PluginBuilder;
 pub use bot::runtimebot::RuntimeBot;
-pub use bot::ApiReturn;
-pub use bot::Bot;
 pub use error::MessageError;
 pub use kovi_macros::plugin;
 pub use task::spawn;
@@ -43,3 +44,7 @@ pub use toml;
 
 #[cfg(feature = "cqstring")]
 pub use regex;
+
+mod types;
+
+pub(crate) use crate::bot::run::RUNTIME as RT;

@@ -1,17 +1,19 @@
-use super::{Anonymous, Sender};
 use crate::bot::message::cq_to_arr_inner;
+use super::{Anonymous, EventBuildError, Sender};
 use crate::bot::runtimebot::send_api_request_with_forget;
+use crate::types::ApiAndOneshot;
 use crate::{
-    bot::{plugin_builder::event::Sex, ApiAndOneshot, SendApi},
     Message,
+    bot::{SendApi, plugin_builder::event::Sex},
 };
 use log::{debug, info};
 use serde::Serialize;
-use serde_json::{self, json, Value};
+use serde_json::value::Index;
+use serde_json::{self, Value, json};
 use tokio::sync::mpsc;
 
 #[cfg(feature = "cqstring")]
-use crate::bot::message::{cq_to_arr, CQMessage};
+use crate::bot::message::{CQMessage, cq_to_arr};
 
 #[deprecated(since = "0.11.0", note = "请使用 `MsgEvent` 代替")]
 pub type AllMsgEvent = MsgEvent;
@@ -59,24 +61,37 @@ impl MsgEvent {
     pub(crate) fn new(
         api_tx: mpsc::Sender<ApiAndOneshot>,
         msg: &str,
-    ) -> Result<MsgEvent, Box<dyn std::error::Error>> {
-        let temp: Value = serde_json::from_str(msg)?;
+    ) -> Result<MsgEvent, EventBuildError> {
+        let temp: Value =
+            serde_json::from_str(msg).map_err(|e| EventBuildError::ParseError(e.to_string()))?;
 
-        let temp_object = temp.as_object().unwrap();
+        let temp_object = temp.as_object().ok_or(EventBuildError::ParseError(
+            "Invalid JSON object".to_string(),
+        ))?;
 
-        let temp_sender = temp_object["sender"].as_object().unwrap();
+        let temp_sender = temp_object
+            .get("sender")
+            .and_then(|v| v.as_object())
+            .ok_or(EventBuildError::ParseError(
+                "Invalid sender object".to_string(),
+            ))?;
 
         let sender = {
             Sender {
-                user_id: temp_sender["user_id"].as_i64().unwrap(),
+                user_id: temp_sender
+                    .get("user_id")
+                    .and_then(|v| v.as_i64())
+                    .ok_or(EventBuildError::ParseError("Invalid user_id".to_string()))?,
                 nickname: temp_sender
                     .get("nickname")
-                    .map(|v| v.as_str().unwrap().to_string()),
+                    .and_then(|v| v.as_str())
+                    .map(|v| v.to_string()),
                 card: temp_sender
                     .get("card")
-                    .map(|v| v.as_str().unwrap().to_string()),
-                sex: if let Some(v) = temp_sender.get("sex") {
-                    match v.as_str().unwrap() {
+                    .and_then(|v| v.as_str())
+                    .map(|v| v.to_string()),
+                sex: if let Some(v) = temp_sender.get("sex").and_then(|v| v.as_str()) {
+                    match v {
                         "male" => Some(Sex::Male),
                         "female" => Some(Sex::Female),
                         _ => None,
@@ -84,48 +99,77 @@ impl MsgEvent {
                 } else {
                     None
                 },
-                age: temp_sender.get("age").map(|v| v.as_i64().unwrap() as i32),
+                age: temp_sender
+                    .get("age")
+                    .and_then(|v| v.as_i64())
+                    .map(|v| v as i32),
                 area: temp_sender
                     .get("area")
-                    .map(|v| v.as_str().unwrap().to_string()),
+                    .and_then(|v| v.as_str())
+                    .map(|v| v.to_string()),
                 level: temp_sender
                     .get("level")
-                    .map(|v| v.as_str().unwrap().to_string()),
+                    .and_then(|v| v.as_str())
+                    .map(|v| v.to_string()),
                 role: temp_sender
                     .get("role")
-                    .map(|v| v.as_str().unwrap().to_string()),
+                    .and_then(|v| v.as_str())
+                    .map(|v| v.to_string()),
                 title: temp_sender
                     .get("title")
-                    .map(|v| v.as_str().unwrap().to_string()),
+                    .and_then(|v| v.as_str())
+                    .map(|v| v.to_string()),
             }
         };
 
-        let group_id = if let Some(v) = temp_object.get("group_id") {
-            v.as_i64()
-        } else {
-            None
-        };
-        let message = if temp_object["message"].is_array() {
-            let v = temp_object["message"].as_array().unwrap().to_vec();
-            Message::from_vec_segment_value(v).unwrap()
+        let group_id = temp_object.get("group_id").and_then(|v| v.as_i64());
+
+        let message = if temp_object
+            .get("message")
+            .and_then(|v| v.as_array())
+            .is_some()
+        {
+            let v = temp_object
+                .get("message")
+                .ok_or(EventBuildError::ParseError(
+                    "Missing 'message' field".to_string(),
+                ))?
+                .as_array()
+                .ok_or(EventBuildError::ParseError(
+                    "Invalid 'message' array".to_string(),
+                ))?
+                .to_vec();
+            Message::from_vec_segment_value(v)
+                .map_err(|e| EventBuildError::ParseError(format!("Parse error: {}", e)))?
         } else {
             let str_v = temp_object["message"].as_str().ok_or(format!("message is not string:{:?}",temp_object["message"]))?;
             let arr_v = cq_to_arr_inner(str_v);
             Message::from_vec_segment_value(arr_v).unwrap()
         };
+
         let anonymous: Option<Anonymous> =
-            if temp_object.get("anonymous").is_none() || temp_object["anonymous"].is_null() {
+            if temp_object.get("anonymous").is_none_or(|v| v.is_null()) {
                 None
             } else {
-                let anonymous = temp_object["anonymous"].clone();
-                Some(serde_json::from_value(anonymous).unwrap())
+                let anonymous = temp_object
+                    .get("anonymous")
+                    .ok_or(EventBuildError::ParseError(
+                        "Invalid anonymous field".to_string(),
+                    ))?
+                    .clone();
+                Some(
+                    serde_json::from_value(anonymous)
+                        .map_err(|e| EventBuildError::ParseError(e.to_string()))?,
+                )
             };
 
         let text = {
             let mut text_vec = Vec::new();
             for msg in message.iter() {
                 if msg.type_ == "text" {
-                    text_vec.push(msg.data.get("text").unwrap().as_str().unwrap());
+                    if let Some(text_value) = msg.data.get("text").and_then(|v| v.as_str()) {
+                        text_vec.push(text_value);
+                    }
                 };
             }
             if !text_vec.is_empty() {
@@ -137,18 +181,56 @@ impl MsgEvent {
 
         let event = MsgEvent {
             human_text: message.to_human_string(),
-            time: temp_object["time"].as_i64().unwrap(),
-            self_id: temp_object["self_id"].as_i64().unwrap(),
-            post_type: temp_object["post_type"].as_str().unwrap().to_string(),
-            message_type: temp_object["message_type"].as_str().unwrap().to_string(),
-            sub_type: temp_object["sub_type"].as_str().unwrap().to_string(),
+            time: temp_object
+                .get("time")
+                .and_then(|v| v.as_i64())
+                .ok_or(EventBuildError::ParseError("Invalid time".to_string()))?,
+            self_id: temp_object
+                .get("self_id")
+                .and_then(|v| v.as_i64())
+                .ok_or(EventBuildError::ParseError("Invalid self_id".to_string()))?,
+            post_type: temp_object
+                .get("post_type")
+                .and_then(|v| v.as_str())
+                .map(|v| v.to_string())
+                .ok_or(EventBuildError::ParseError("Invalid post_type".to_string()))?,
+            message_type: temp_object
+                .get("message_type")
+                .and_then(|v| v.as_str())
+                .map(|v| v.to_string())
+                .ok_or(EventBuildError::ParseError(
+                    "Invalid message_type".to_string(),
+                ))?,
+            sub_type: temp_object
+                .get("sub_type")
+                .and_then(|v| v.as_str())
+                .map(|v| v.to_string())
+                .ok_or(EventBuildError::ParseError("Invalid sub_type".to_string()))?,
             message,
-            message_id: temp_object["message_id"].as_i64().unwrap() as i32,
+            message_id: temp_object
+                .get("message_id")
+                .and_then(|v| v.as_i64())
+                .ok_or(EventBuildError::ParseError(
+                    "Invalid message_id".to_string(),
+                ))? as i32,
             group_id,
-            user_id: temp_object["user_id"].as_i64().unwrap(),
+            user_id: temp_object
+                .get("user_id")
+                .and_then(|v| v.as_i64())
+                .ok_or(EventBuildError::ParseError("Invalid user_id".to_string()))?,
             anonymous,
-            raw_message: temp_object["raw_message"].as_str().unwrap().to_string(),
-            font: temp_object["font"].as_i64().unwrap() as i32,
+            raw_message: temp_object
+                .get("raw_message")
+                .and_then(|v| v.as_str())
+                .map(|v| v.to_string())
+                .ok_or(EventBuildError::ParseError(
+                    "Invalid raw_message".to_string(),
+                ))?,
+            font: temp_object
+                .get("font")
+                .and_then(|v| v.as_i64())
+                .ok_or(EventBuildError::ParseError("Invalid font".to_string()))?
+                as i32,
             sender,
             api_tx,
             text,
@@ -160,11 +242,41 @@ impl MsgEvent {
 }
 
 impl MsgEvent {
+    /// 直接从原始的 Json Value 获取某值
+    ///
+    /// # example
+    ///
+    /// ```rust
+    /// use kovi::PluginBuilder;
+    ///
+    /// PluginBuilder::on_msg(|event| async move {
+    ///     let time = event.get("time").and_then(|v| v.as_i64()).unwrap();
+    ///
+    ///     assert_eq!(time, event.time);
+    /// });
+    /// ```
+    pub fn get<I: Index>(&self, index: I) -> Option<&Value> {
+        self.original_json.get(index)
+    }
+}
+
+impl<I> std::ops::Index<I> for MsgEvent
+where
+    I: Index,
+{
+    type Output = Value;
+
+    fn index(&self, index: I) -> &Self::Output {
+        &self.original_json[index]
+    }
+}
+
+impl MsgEvent {
     fn reply_builder<T>(&self, msg: T, auto_escape: bool) -> SendApi
     where
         T: Serialize,
     {
-        if self.message_type == "private" {
+        if self.is_private() {
             SendApi::new(
                 "send_msg",
                 json!({

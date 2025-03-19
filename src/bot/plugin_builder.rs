@@ -1,42 +1,35 @@
-use super::{runtimebot::RuntimeBot, Bot};
-use super::{ApiAndOneshot, Host, PLUGIN_BUILDER, PLUGIN_NAME};
-use croner::errors::CronError;
+use super::Host;
+use super::{Bot, runtimebot::RuntimeBot};
+use crate::RT;
+use crate::plugin::{PLUGIN_BUILDER, PLUGIN_NAME};
+use crate::types::{ApiAndOneshot, MsgFn, NoArgsFn, NoticeFn, RequestFn};
 use croner::Cron;
+use croner::errors::CronError;
 use event::{MsgEvent, NoticeEvent, RequestEvent};
 use log::error;
+use parking_lot::RwLock;
 use std::future::Future;
-use std::pin::Pin;
-use std::sync::{Arc, RwLock};
+use std::sync::Arc;
 use tokio::sync::mpsc;
 
 pub mod event;
-
-pub type PinFut = Pin<Box<dyn Future<Output = ()> + Send>>;
-
-pub type AllMsgFn = Arc<dyn Fn(Arc<MsgEvent>) -> PinFut + Send + Sync>;
-
-pub type AllNoticeFn = Arc<dyn Fn(Arc<NoticeEvent>) -> PinFut + Send + Sync>;
-
-pub type AllRequestFn = Arc<dyn Fn(Arc<RequestEvent>) -> PinFut + Send + Sync>;
-
-pub type NoArgsFn = Arc<dyn Fn() -> PinFut + Send + Sync>;
 
 #[derive(Clone, Default)]
 pub(crate) struct Listen {
     pub(crate) msg: Vec<Arc<ListenMsgFn>>,
     #[cfg(feature = "message_sent")]
-    pub(crate) msg_sent: Vec<AllMsgFn>,
-    pub(crate) notice: Vec<AllNoticeFn>,
-    pub(crate) request: Vec<AllRequestFn>,
+    pub(crate) msg_sent: Vec<MsgFn>,
+    pub(crate) notice: Vec<NoticeFn>,
+    pub(crate) request: Vec<RequestFn>,
     pub(crate) drop: Vec<NoArgsFn>,
 }
 
 #[derive(Clone)]
 pub(crate) enum ListenMsgFn {
-    Msg(AllMsgFn),
-    PrivateMsg(AllMsgFn),
-    GroupMsg(AllMsgFn),
-    AdminMsg(AllMsgFn),
+    Msg(MsgFn),
+    PrivateMsg(MsgFn),
+    GroupMsg(MsgFn),
+    AdminMsg(MsgFn),
 }
 
 impl Listen {
@@ -108,7 +101,7 @@ impl PluginBuilder {
         Fut::Output: Send,
     {
         PLUGIN_BUILDER.with(|p| {
-            let mut bot = p.bot.write().unwrap();
+            let mut bot = p.bot.write();
             let bot_plugin = bot.plugins.get_mut(&p.runtime_bot.plugin_name).unwrap();
 
             let handler = Arc::new(handler);
@@ -138,7 +131,7 @@ impl PluginBuilder {
         Fut::Output: Send,
     {
         PLUGIN_BUILDER.with(|p| {
-            let mut bot = p.bot.write().unwrap();
+            let mut bot = p.bot.write();
             let bot_plugin = bot.plugins.get_mut(&p.runtime_bot.plugin_name).unwrap();
 
             bot_plugin
@@ -168,7 +161,7 @@ impl PluginBuilder {
         Fut::Output: Send,
     {
         PLUGIN_BUILDER.with(|p| {
-            let mut bot = p.bot.write().unwrap();
+            let mut bot = p.bot.write();
             let bot_plugin = bot.plugins.get_mut(&p.runtime_bot.plugin_name).unwrap();
 
             bot_plugin
@@ -195,7 +188,7 @@ impl PluginBuilder {
         Fut::Output: Send,
     {
         PLUGIN_BUILDER.with(|p| {
-            let mut bot = p.bot.write().unwrap();
+            let mut bot = p.bot.write();
             let bot_plugin = bot.plugins.get_mut(&p.runtime_bot.plugin_name).unwrap();
 
             bot_plugin
@@ -224,7 +217,7 @@ impl PluginBuilder {
         Fut::Output: Send,
     {
         PLUGIN_BUILDER.with(|p| {
-            let mut bot = p.bot.write().unwrap();
+            let mut bot = p.bot.write();
             let bot_plugin = bot.plugins.get_mut(&p.runtime_bot.plugin_name).unwrap();
 
             bot_plugin.listen.msg_sent.push(Arc::new({
@@ -244,14 +237,14 @@ impl PluginBuilder {
     /// 注册消息处理函数。
     ///
     /// 注册一个处理程序，用于处理接收到的消息事件（`NoticeEvent`）。
-    pub fn on_all_notice<F, Fut>(handler: F)
+    pub fn on_notice<F, Fut>(handler: F)
     where
         F: Fn(Arc<NoticeEvent>) -> Fut + Send + Sync + 'static,
         Fut: Future + Send,
         Fut::Output: Send,
     {
         PLUGIN_BUILDER.with(|p| {
-            let mut bot = p.bot.write().unwrap();
+            let mut bot = p.bot.write();
             let bot_plugin = bot.plugins.get_mut(&p.runtime_bot.plugin_name).unwrap();
 
             bot_plugin.listen.notice.push(Arc::new({
@@ -271,14 +264,14 @@ impl PluginBuilder {
     /// 注册异步消息处理函数。
     ///
     /// 注册一个处理程序，用于处理接收到的消息事件（`RequestEvent`）。
-    pub fn on_all_request<F, Fut>(handler: F)
+    pub fn on_request<F, Fut>(handler: F)
     where
         F: Fn(Arc<RequestEvent>) -> Fut + Send + Sync + 'static,
         Fut: Future + Send,
         Fut::Output: Send,
     {
         PLUGIN_BUILDER.with(|p| {
-            let mut bot = p.bot.write().unwrap();
+            let mut bot = p.bot.write();
             let bot_plugin = bot.plugins.get_mut(&p.runtime_bot.plugin_name).unwrap();
 
             bot_plugin.listen.request.push(Arc::new({
@@ -295,6 +288,32 @@ impl PluginBuilder {
         })
     }
 
+    #[deprecated(note = "请使用 `on_notice` 代替")]
+    /// 注册消息处理函数。
+    ///
+    /// 注册一个处理程序，用于处理接收到的消息事件（`NoticeEvent`）。
+    pub fn on_all_notice<F, Fut>(handler: F)
+    where
+        F: Fn(Arc<NoticeEvent>) -> Fut + Send + Sync + 'static,
+        Fut: Future + Send,
+        Fut::Output: Send,
+    {
+        Self::on_notice(handler)
+    }
+
+    #[deprecated(note = "请使用 `on_request` 代替")]
+    /// 注册异步消息处理函数。
+    ///
+    /// 注册一个处理程序，用于处理接收到的消息事件（`RequestEvent`）。
+    pub fn on_all_request<F, Fut>(handler: F)
+    where
+        F: Fn(Arc<RequestEvent>) -> Fut + Send + Sync + 'static,
+        Fut: Future + Send,
+        Fut::Output: Send,
+    {
+        Self::on_request(handler)
+    }
+
     /// 注册程序结束事件处理函数。
     ///
     /// 注册处理程序，用于处理接收到的程序结束事件。
@@ -305,7 +324,7 @@ impl PluginBuilder {
         Fut::Output: Send,
     {
         PLUGIN_BUILDER.with(|p| {
-            let mut bot = p.bot.write().unwrap();
+            let mut bot = p.bot.write();
             let bot_plugin = bot.plugins.get_mut(&p.runtime_bot.plugin_name).unwrap();
 
             bot_plugin.listen.drop.push(Arc::new({
@@ -363,11 +382,11 @@ impl PluginBuilder {
     {
         let name = Arc::new(p.runtime_bot.plugin_name.clone());
         let mut enabled = {
-            let bot = p.bot.read().unwrap();
+            let bot = p.bot.read();
             let plugin = bot.plugins.get(&*name).unwrap();
             plugin.enabled.subscribe()
         };
-        tokio::spawn(PLUGIN_NAME.scope(name.clone(), async move {
+        RT.get().unwrap().spawn(PLUGIN_NAME.scope(name.clone(), async move {
 
             tokio::select! {
                 _ = async {
@@ -438,12 +457,15 @@ macro_rules! async_move {
 #[cfg(test)]
 mod on_is_ture {
     use crate::{
-        bot::{plugin_builder::ListenMsgFn, ApiAndOneshot, PLUGIN_BUILDER},
         Bot, PluginBuilder,
+        bot::plugin_builder::ListenMsgFn,
+        plugin::{PLUGIN_BUILDER, Plugin},
+        types::ApiAndOneshot,
     };
+    use parking_lot::RwLock;
     use std::{
         net::{IpAddr, Ipv4Addr},
-        sync::{Arc, RwLock},
+        sync::Arc,
     };
     use tokio::sync::mpsc;
 
@@ -469,8 +491,8 @@ mod on_is_ture {
             PluginBuilder::on_admin_msg(|_| async {});
             PluginBuilder::on_group_msg(|_| async {});
             PluginBuilder::on_private_msg(|_| async {});
-            PluginBuilder::on_all_notice(|_| async {});
-            PluginBuilder::on_all_request(|_| async {});
+            PluginBuilder::on_notice(|_| async {});
+            PluginBuilder::on_request(|_| async {});
             PluginBuilder::drop(|| async {});
         }
 
@@ -480,8 +502,10 @@ mod on_is_ture {
             })
         }
 
+        let plugin = Plugin::new("some", "0.0.1", Arc::new(pin_something));
+
         let mut bot = Bot::build(conf);
-        bot.mount_main("some", "0.0.1", Arc::new(pin_something));
+        bot.mount_plugin(plugin);
         let main_foo = bot.plugins.get("some").unwrap().main.clone();
         let bot = Arc::new(RwLock::new(bot));
 
@@ -494,7 +518,7 @@ mod on_is_ture {
         );
         PLUGIN_BUILDER.scope(p, (main_foo)()).await;
 
-        let bot_lock = bot.write().unwrap();
+        let bot_lock = bot.write();
         let bot_plugin = bot_lock.plugins.get("some").unwrap();
 
         // 检测里面是不是每个类型的闭包都是一个
