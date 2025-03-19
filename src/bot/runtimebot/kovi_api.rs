@@ -1,5 +1,7 @@
 use super::RuntimeBot;
-use crate::{Bot, PluginBuilder, RT, error::BotError, plugin::PluginInfo, types::ApiAndOneshot};
+use crate::{
+    Bot, PluginBuilder, error::BotError, plugin::PluginInfo, runtime::RT, types::ApiAndOneshot,
+};
 use parking_lot::RwLock;
 use std::{path::PathBuf, sync::Arc};
 use tokio::sync::mpsc;
@@ -461,6 +463,7 @@ fn enable_plugin<T: AsRef<str>>(
     let bot_read = bot.read();
     let plugin_name = plugin_name.as_ref();
 
+    #[cfg(not(feature = "dylib-plugin"))]
     let (host, port) = {
         (
             bot_read.information.server.host.clone(),
@@ -479,12 +482,17 @@ fn enable_plugin<T: AsRef<str>>(
 
     let plugin_ = bot_plugin.clone();
 
+    #[cfg(not(feature = "dylib-plugin"))]
     let plugin_builder =
         PluginBuilder::new(plugin_name.to_string(), bot.clone(), host, port, api_tx);
 
-    RT.get()
-        .unwrap()
-        .spawn(async move { plugin_.run(plugin_builder) });
+    RT.get().unwrap().spawn(async move {
+        #[cfg(not(feature = "dylib-plugin"))]
+        plugin_.run(plugin_builder);
+
+        #[cfg(feature = "dylib-plugin")]
+        plugin_.run();
+    });
 
     Ok(())
 }

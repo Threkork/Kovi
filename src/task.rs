@@ -1,31 +1,36 @@
-use crate::{RT, plugin::PLUGIN_NAME};
+use crate::{error::InitManagerError, plugin::PLUGIN_NAME, runtime::RT};
 use ahash::RandomState;
 use parking_lot::Mutex;
 use std::{
     borrow::BorrowMut,
     collections::HashMap,
     future::Future,
-    sync::{Arc, LazyLock},
+    sync::{Arc, OnceLock},
     time::Duration,
 };
 use tokio::{
     task::{AbortHandle, JoinHandle},
     time::interval,
 };
+#[cfg(not(feature = "dylib-plugin"))]
+pub(crate) static TASK_MANAGER: OnceLock<TaskManager> = OnceLock::new();
 
-pub(crate) static TASK_MANAGER: LazyLock<TaskManager> = LazyLock::new(TaskManager::init);
+#[cfg(feature = "dylib-plugin")]
+pub static TASK_MANAGER: OnceLock<TaskManager> = OnceLock::new();
 
-pub(crate) struct TaskManager {
+#[derive(Debug)]
+pub struct TaskManager {
     pub(crate) handles: Arc<Mutex<TaskAbortHandles>>,
 }
 
 impl TaskManager {
-    pub(crate) fn init() -> Self {
+    /// 必须先初始化Runtime才能初始化TaskManager
+    pub(crate) fn once_init() -> Result<(), InitManagerError> {
         let handles = Arc::new(Mutex::new(TaskAbortHandles::default()));
 
         let handles_clone = handles.clone();
         RT.get().unwrap().spawn(async move {
-            let mut interval = interval(Duration::from_secs(20)); // 每<?>秒清理一次
+            let mut interval = interval(Duration::from_secs(20)); // 每20秒清理一次
             loop {
                 interval.tick().await;
                 log::debug!("Kovi task thread is cleaning up task handles");
@@ -36,7 +41,11 @@ impl TaskManager {
             }
         });
 
-        Self { handles }
+        let task_manager = Self { handles };
+
+        TASK_MANAGER
+            .set(task_manager)
+            .map_err(|_| InitManagerError::AlreadyInitialized)
     }
 
     pub(crate) fn disable_plugin(&self, plugin_name: &str) {
@@ -89,6 +98,7 @@ impl TaskAbortHandles {
 /// # panic!
 ///
 /// 如果在 Kovi 管理之外的地方（tokio线程或者系统线程）运行此函数，此函数会 panic!
+#[cfg(not(feature = "dylib-plugin"))]
 pub fn spawn<F>(future: F) -> JoinHandle<F::Output>
 where
     F: Future + Send + 'static,
@@ -109,9 +119,41 @@ where
 }
 
 pub(crate) fn task_manager_handler(name: &str, about_join: AbortHandle) {
-    let mut task_abort_handles = TASK_MANAGER.handles.lock();
+    let mut task_abort_handles = TASK_MANAGER.get().unwrap().handles.lock();
 
     let aborts = task_abort_handles.map.entry(name.to_string()).or_default();
 
     aborts.push(about_join);
+}
+
+///////////////////////////////////// 以下为dylib特殊对待
+
+/// 生成一个新的异步线程并立即运行，另外，这个线程关闭句柄会被交给 Kovi 管理。
+///
+/// **如果在 Kovi 管理之外的地方（新的tokio线程或者系统线程）运行此函数，此函数会 panic!**
+///
+/// 由 Kovi 管理的地方：
+///
+/// 1. 有 #[kovi::plugin] 的插件入口函数。
+/// 2. 插件的监听闭包。
+/// 3. 由 kovi::spawn() 创建的新线程。
+///
+/// # panic!
+///
+/// 如果在 Kovi 管理之外的地方（tokio线程或者系统线程）运行此函数，此函数会 panic!
+#[cfg(feature = "dylib-plugin")]
+pub fn spawn<F>(future: F) -> JoinHandle<F::Output>
+where
+    F: Future + Send + 'static,
+    F::Output: Send + 'static,
+{
+    let join = RT.get().unwrap().spawn(future);
+
+    let about_join = join.abort_handle();
+
+    let name = PLUGIN_NAME.get().unwrap();
+
+    task_manager_handler(name, about_join);
+
+    join
 }

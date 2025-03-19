@@ -18,21 +18,21 @@ pub mod utils;
 pub use bot::ApiReturn;
 pub use bot::Bot;
 pub use bot::message::Message;
-pub use bot::plugin_builder::PluginBuilder;
-pub use bot::plugin_builder::event::MsgEvent;
-pub use bot::plugin_builder::event::NoticeEvent;
-pub use bot::plugin_builder::event::RequestEvent;
 pub use bot::runtimebot::RuntimeBot;
 pub use error::MessageError;
 pub use kovi_macros::plugin;
+pub use plugin::plugin_builder::PluginBuilder;
+pub use plugin::plugin_builder::event::MsgEvent;
+pub use plugin::plugin_builder::event::NoticeEvent;
+pub use plugin::plugin_builder::event::RequestEvent;
 pub use task::spawn;
 
 #[deprecated(since = "0.11.0", note = "请使用 `MsgEvent` 代替")]
-pub type AllMsgEvent = bot::plugin_builder::event::MsgEvent;
+pub type AllMsgEvent = plugin::plugin_builder::event::MsgEvent;
 #[deprecated(since = "0.11.0", note = "请使用 `NoticeEvent` 代替")]
-pub type AllNoticeEvent = bot::plugin_builder::event::NoticeEvent;
+pub type AllNoticeEvent = plugin::plugin_builder::event::NoticeEvent;
 #[deprecated(since = "0.11.0", note = "请使用 `RequestEvent` 代替")]
-pub type AllRequestEvent = bot::plugin_builder::event::RequestEvent;
+pub type AllRequestEvent = plugin::plugin_builder::event::RequestEvent;
 
 pub use chrono;
 pub use croner;
@@ -45,6 +45,5 @@ pub use toml;
 #[cfg(feature = "cqstring")]
 pub use regex;
 
+pub mod runtime;
 mod types;
-
-pub(crate) use crate::bot::run::RUNTIME as RT;

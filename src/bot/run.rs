@@ -1,51 +1,32 @@
-use super::{
-    Bot,
-    handler::{InternalEvent, KoviEvent},
+use crate::{
+    Bot, PluginBuilder,
+    bot::handler::{InternalEvent, KoviEvent},
+    runtime::RT,
+    task::TASK_MANAGER,
+    types::ApiAndOneshot,
 };
-use crate::{PluginBuilder, types::ApiAndOneshot};
 use log::error;
 use parking_lot::RwLock;
-use std::{
-    borrow::Borrow,
-    future::Future,
-    process::exit,
-    sync::{Arc, LazyLock, OnceLock},
+use std::borrow::Borrow;
+use std::future::Future;
+use std::process::exit;
+use std::sync::{Arc, LazyLock};
+use tokio::sync::{
+    mpsc::{self, Sender},
+    watch,
 };
-use tokio::{
-    runtime::Runtime,
-    sync::{
-        mpsc::{self, Sender},
-        watch,
-    },
-    task::JoinHandle,
-};
+use tokio::task::JoinHandle;
 
-pub(crate) static RUNTIME: OnceLock<KoviRuntime> = OnceLock::new();
-pub(crate) use RUNTIME as RT;
-
-#[derive(Debug)]
-pub struct KoviRuntime {
-    pub(crate) runtime: Arc<Runtime>,
-}
-
-impl KoviRuntime {
-    pub fn new() -> Self {
-        let runtime = Runtime::new().unwrap();
-        Self {
-            runtime: Arc::new(runtime),
+struct InitManager {}
+impl InitManager {
+    pub(crate) fn init() {
+        if RT.get().is_none() {
+            crate::runtime::Runtime::once_init().unwrap();
         }
-    }
 
-    pub fn block_on<F: Future>(&self, future: F) -> F::Output {
-        self.runtime.block_on(future)
-    }
-
-    pub fn spawn<F>(&self, future: F) -> JoinHandle<F::Output>
-    where
-        F: Future + Send + 'static,
-        F::Output: Send + 'static,
-    {
-        self.runtime.spawn(future)
+        if TASK_MANAGER.get().is_none() {
+            crate::task::TaskManager::once_init().unwrap();
+        }
     }
 }
 
@@ -64,13 +45,11 @@ impl Bot {
     ///
     /// **注意此函数会阻塞, 直到Bot连接失效，或者有退出信号传入程序**
     pub fn run(self) {
+        InitManager::init();
+
         let server = self.information.server.clone();
 
         let bot = Arc::new(RwLock::new(self));
-
-        if RUNTIME.get().is_none() {
-            RUNTIME.set(KoviRuntime::new()).unwrap();
-        }
 
         let async_task = async {
             //处理连接，从msg_tx返回消息
@@ -108,6 +87,7 @@ impl Bot {
                 });
 
                 // 运行所有的main
+                #[cfg(not(feature = "dylib-plugin"))]
                 bot_write.spawn({
                     let bot = bot.clone();
                     let api_tx = api_tx.clone();
@@ -145,10 +125,11 @@ impl Bot {
             }
         };
 
-        RUNTIME.get().unwrap().block_on(async_task);
+        RT.get().unwrap().block_on(async_task);
     }
 
-    // 运行所有main()
+    /// 运行所有main()
+    #[cfg(not(feature = "dylib-plugin"))]
     fn run_mains(bot: Arc<RwLock<Self>>, api_tx: mpsc::Sender<ApiAndOneshot>) {
         let bot_ = bot.read();
         let main_job_map = bot_.plugins.borrow();
@@ -171,6 +152,7 @@ impl Bot {
                 port,
                 api_tx.clone(),
             );
+
             plugin.run(plugin_builder);
         }
     }

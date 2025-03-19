@@ -1,25 +1,40 @@
-use crate::bot::plugin_builder::Listen;
-#[cfg(feature = "plugin-access-control")]
-use crate::bot::runtimebot::kovi_api::AccessList;
+use crate::Bot;
+use crate::runtime::RT;
+use crate::task::TASK_MANAGER;
 use crate::types::KoviAsyncFn;
-use crate::{Bot, PluginBuilder};
+use plugin_builder::listen::Listen;
 use serde::{Deserialize, Serialize};
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 use tokio::sync::watch;
 use tokio::task::JoinHandle;
+
+#[cfg(not(feature = "dylib-plugin"))]
+use crate::PluginBuilder;
 
 #[cfg(feature = "plugin-access-control")]
 pub use crate::bot::runtimebot::kovi_api::AccessControlMode;
 
-use crate::task::TASK_MANAGER;
+#[cfg(feature = "plugin-access-control")]
+use crate::bot::runtimebot::kovi_api::AccessList;
 
+pub(crate) mod dylib_plugin;
+pub mod plugin_builder;
+
+#[cfg(not(feature = "dylib-plugin"))]
 tokio::task_local! {
     pub static PLUGIN_BUILDER: crate::PluginBuilder;
 }
 
+#[cfg(not(feature = "dylib-plugin"))]
 tokio::task_local! {
     pub static PLUGIN_NAME: Arc<String>;
 }
+
+#[cfg(feature = "dylib-plugin")]
+pub static PLUGIN_BUILDER: OnceLock<crate::PluginBuilder> = OnceLock::new();
+
+#[cfg(feature = "dylib-plugin")]
+pub static PLUGIN_NAME: OnceLock<String> = OnceLock::new();
 
 #[derive(Clone)]
 pub struct Plugin {
@@ -37,6 +52,16 @@ pub struct Plugin {
     pub(crate) list_mode: AccessControlMode,
     #[cfg(feature = "plugin-access-control")]
     pub(crate) access_list: AccessList,
+}
+impl std::fmt::Debug for Plugin {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Plugin")
+            .field("name", &self.name)
+            .field("version", &self.version)
+            .field("enabled", &self.enabled)
+            .field("enable_on_startup", &self.enable_on_startup)
+            .finish()
+    }
 }
 
 impl Plugin {
@@ -60,14 +85,15 @@ impl Plugin {
         }
     }
 
-    // 运行单个插件的main()
+    // 运行插件的main()
+    #[cfg(not(feature = "dylib-plugin"))]
     pub(crate) fn run(&self, plugin_builder: PluginBuilder) {
         let plugin_name = plugin_builder.runtime_bot.plugin_name.clone();
 
         let mut enabled = self.enabled.subscribe();
         let main = self.main.clone();
 
-        tokio::spawn(async move {
+        RT.get().unwrap().spawn(async move {
             tokio::select! {
                 _ = PLUGIN_NAME.scope(
                         Arc::new(plugin_name),
@@ -85,6 +111,28 @@ impl Plugin {
         });
     }
 
+    // 运行插件的main()
+    #[cfg(feature = "dylib-plugin")]
+    pub(crate) fn run(&self) {
+        let mut enabled = self.enabled.subscribe();
+        let main = self.main.clone();
+
+        RT.get().unwrap().spawn(async move {
+            tokio::select! {
+                _ = main() => {}
+                _ = async {
+                        loop {
+                            enabled.changed().await.unwrap();
+                            if !*enabled.borrow_and_update() {
+                                break;
+                            }
+                        }
+                } => {}
+            }
+        });
+    }
+
+    #[cfg(not(feature = "dylib-plugin"))]
     pub(crate) fn shutdown(&mut self) -> JoinHandle<()> {
         log::debug!("Plugin '{}' is dropping.", self.name,);
 
@@ -94,16 +142,48 @@ impl Plugin {
 
         for listen in &self.listen.drop {
             let listen_clone = listen.clone();
+
             let plugin_name_ = plugin_name_.clone();
+
             let task = tokio::spawn(async move {
                 PLUGIN_NAME
                     .scope(plugin_name_, Bot::handler_drop(listen_clone))
                     .await;
             });
+
             task_vec.push(task);
         }
 
-        TASK_MANAGER.disable_plugin(&self.name);
+        TASK_MANAGER.get().unwrap().disable_plugin(&self.name);
+
+        self.enabled.send_modify(|v| {
+            *v = false;
+        });
+        self.listen.clear();
+        tokio::spawn(async move {
+            for task in task_vec {
+                let _ = task.await;
+            }
+        })
+    }
+
+    #[cfg(feature = "dylib-plugin")]
+    pub(crate) fn shutdown(&mut self) -> JoinHandle<()> {
+        log::debug!("Plugin '{}' is dropping.", self.name,);
+
+        let mut task_vec = Vec::new();
+
+        for listen in &self.listen.drop {
+            let listen_clone = listen.clone();
+
+            let task = tokio::spawn(async move {
+                Bot::handler_drop(listen_clone).await;
+            });
+
+            task_vec.push(task);
+        }
+
+        TASK_MANAGER.get().unwrap().disable_plugin(&self.name);
 
         self.enabled.send_modify(|v| {
             *v = false;

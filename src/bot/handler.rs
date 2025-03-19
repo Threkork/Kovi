@@ -1,19 +1,23 @@
-#[cfg(feature = "message_sent")]
-use crate::types::MsgFn;
 use crate::{
+    bot::plugin_builder::{
+        event::{MsgEvent, NoticeEvent, RequestEvent},
+        listen::ListenMsgFn,
+    },
     bot::*,
-    plugin::PLUGIN_NAME,
+    runtime::RT,
     types::{ApiAndOneshot, NoArgsFn, NoticeFn, RequestFn},
 };
 use log::{debug, error, info, warn};
 use parking_lot::RwLock;
-use plugin_builder::{
-    ListenMsgFn,
-    event::{MsgEvent, NoticeEvent, RequestEvent},
-};
 use serde_json::{Value, json};
 use std::sync::Arc;
 use tokio::sync::oneshot;
+
+#[cfg(feature = "message_sent")]
+use crate::types::MsgFn;
+
+#[cfg(not(feature = "dylib-plugin"))]
+use crate::plugin::PLUGIN_NAME;
 
 /// Kovi内部事件
 pub enum InternalEvent {
@@ -174,6 +178,7 @@ impl Bot {
 
         let bot_read = bot.read();
 
+        #[cfg(not(feature = "dylib-plugin"))]
         match event {
             OneBotEvent::Msg(e) => {
                 let e = Arc::new(e);
@@ -256,6 +261,85 @@ impl Bot {
                         RT.get().unwrap().spawn(async move {
                             tokio::select! {
                                 _ = PLUGIN_NAME.scope(name, Self::handler_request(listen, event_clone)) => {}
+                                _ = monitor_enabled_state(enabled) => {}
+                            }
+                        });
+                    }
+                }
+            }
+        }
+
+        #[cfg(feature = "dylib-plugin")]
+        match event {
+            OneBotEvent::Msg(e) => {
+                let e = Arc::new(e);
+                for plugin in bot_read.plugins.values() {
+                    // 判断是否黑白名单
+                    #[cfg(feature = "plugin-access-control")]
+                    if !is_access(plugin, &e) {
+                        continue;
+                    }
+
+                    for listen in &plugin.listen.msg {
+                        let event_clone = Arc::clone(&e);
+                        let bot_clone = bot.clone();
+                        let listen = listen.clone();
+                        let enabled = plugin.enabled.subscribe();
+                        RT.get().unwrap().spawn(async move {
+                            tokio::select! {
+                                _ = Self::handle_msg(listen, event_clone, bot_clone) => {}
+                                _ = monitor_enabled_state(enabled) => {}
+                            }
+                        });
+                    }
+                }
+            }
+            #[cfg(feature = "message_sent")]
+            OneBotEvent::MsgSent(e) => {
+                let e = Arc::new(e);
+                for plugin in bot_read.plugins.values() {
+                    for listen in &plugin.listen.msg_sent {
+                        let event_clone = Arc::clone(&e);
+                        let listen = listen.clone();
+                        let enabled = plugin.enabled.subscribe();
+
+                        RT.get().unwrap().spawn(async move {
+                            tokio::select! {
+                                _ = Self::handler_msg_sent(listen,event_clone) => {}
+                                _ = monitor_enabled_state(enabled) => {}
+                            }
+                        });
+                    }
+                }
+            }
+            OneBotEvent::AllNotice(e) => {
+                let e = Arc::new(e);
+                for plugin in bot_read.plugins.values() {
+                    for listen in &plugin.listen.notice {
+                        let event_clone = Arc::clone(&e);
+                        let listen = listen.clone();
+                        let enabled = plugin.enabled.subscribe();
+
+                        RT.get().unwrap().spawn(async move {
+                            tokio::select! {
+                                _ = Self::handler_notice(listen, event_clone) => {}
+                                _ = monitor_enabled_state(enabled) => {}
+                            }
+                        });
+                    }
+                }
+            }
+            OneBotEvent::AllRequest(e) => {
+                let e = Arc::new(e);
+                for plugin in bot_read.plugins.values() {
+                    for listen in &plugin.listen.request {
+                        let event_clone = Arc::clone(&e);
+                        let listen = listen.clone();
+                        let enabled = plugin.enabled.subscribe();
+
+                        RT.get().unwrap().spawn(async move {
+                            tokio::select! {
+                                _ = Self::handler_request(listen, event_clone) => {}
                                 _ = monitor_enabled_state(enabled) => {}
                             }
                         });

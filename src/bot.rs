@@ -1,9 +1,9 @@
+use crate::plugin::plugin_builder::listen::Listen;
+use crate::plugin::{Plugin, PluginStatus};
+use crate::types::KoviAsyncFn;
 use ahash::{HashMapExt as _, RandomState};
 use dialoguer::theme::ColorfulTheme;
 use dialoguer::{Input, Select};
-use plugin_builder::Listen;
-#[cfg(feature = "plugin-access-control")]
-use runtimebot::kovi_api::AccessList;
 use serde::{Deserialize, Serialize};
 use serde_json::{self, Value};
 use std::collections::{HashMap, HashSet};
@@ -17,22 +17,25 @@ use tokio::sync::watch;
 
 use crate::error::{BotBuildError, BotError};
 
-use crate::RT;
+#[cfg(feature = "plugin-access-control")]
+use runtimebot::kovi_api::AccessList;
+
 #[cfg(feature = "plugin-access-control")]
 pub use crate::bot::runtimebot::kovi_api::AccessControlMode;
-use crate::plugin::{Plugin, PluginStatus};
-use crate::types::KoviAsyncFn;
 
 pub(crate) mod connect;
 pub(crate) mod handler;
 pub(crate) mod run;
 
+pub mod event;
 pub mod message;
-pub mod plugin_builder;
 pub mod runtimebot;
 
+/// 兼容性要求，在这里再导出
+pub use crate::plugin::plugin_builder;
+
 /// bot结构体
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub struct Bot {
     pub information: BotInformation,
     pub(crate) plugins: HashMap<String, Plugin, RandomState>,
@@ -81,7 +84,6 @@ impl Bot {
     }
 
     /// 挂载插件的启动函数。
-    #[deprecated(since = "0.12.0", note = "请使用 `mount_plugin` 代替")]
     pub fn mount_main<T>(&mut self, name: T, version: T, main: Arc<KoviAsyncFn>)
     where
         String: From<T>,

@@ -30,3 +30,10 @@ pub enum BotBuildError {
     #[error("Failed to read TOML file: {0}")]
     FileReadError(String),
 }
+
+#[derive(Error, Debug)]
+pub(crate) enum InitManagerError {
+    /// 重复初始化
+    #[error("Already initialized")]
+    AlreadyInitialized,
+}

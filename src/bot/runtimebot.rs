@@ -20,7 +20,7 @@ pub use kovi_api::SetAdmin;
 ///
 /// bot.send_private_msg(user_id, "bot online")
 /// ```
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub struct RuntimeBot {
     pub host: Host,
     pub port: u16,
