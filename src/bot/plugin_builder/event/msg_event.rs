@@ -1,3 +1,4 @@
+use crate::bot::message::cq_to_arr_inner;
 use super::{Anonymous, EventBuildError, Sender};
 use crate::bot::runtimebot::send_api_request_with_forget;
 use crate::types::ApiAndOneshot;
@@ -10,9 +11,6 @@ use serde::Serialize;
 use serde_json::value::Index;
 use serde_json::{self, Value, json};
 use tokio::sync::mpsc;
-
-#[cfg(not(feature = "cqstring"))]
-use log::error;
 
 #[cfg(feature = "cqstring")]
 use crate::bot::message::{CQMessage, cq_to_arr};
@@ -144,25 +142,9 @@ impl MsgEvent {
             Message::from_vec_segment_value(v)
                 .map_err(|e| EventBuildError::ParseError(format!("Parse error: {}", e)))?
         } else {
-            #[cfg(feature = "cqstring")]
-            {
-                let str = temp_object
-                    .get("message")
-                    .and_then(|v| v.as_str())
-                    .ok_or(EventBuildError::ParseError(
-                        "Invalid message string".to_string(),
-                    ))?
-                    .to_string();
-                cq_to_arr(CQMessage::from(str))
-            }
-            #[cfg(not(feature = "cqstring"))]
-            {
-                // 不开启cqstring特性，不能用。
-                error!("不开启cqstring feature，不能使用cq码");
-                return Err(EventBuildError::ParseError(
-                    "cqstring feature is disabled".to_string(),
-                ));
-            }
+            let str_v = temp_object["message"].as_str().ok_or(format!("message is not string:{:?}",temp_object["message"]))?;
+            let arr_v = cq_to_arr_inner(str_v);
+            Message::from_vec_segment_value(arr_v).unwrap()
         };
 
         let anonymous: Option<Anonymous> =
